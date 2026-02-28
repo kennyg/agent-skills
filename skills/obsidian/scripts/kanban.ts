@@ -5,8 +5,10 @@
  * Programmatic interface to obsidian-kanban boards.
  * Agents claim tasks, update status, and report results via file-based operations.
  *
- * Card format:
- *   - [ ] Task title [agent::claude-1] [status::in-progress] [priority::high] #agent-task #in-progress ^task-abc123
+ * Card formats:
+ *   Simple:  - [ ] Task title [agent::claude-1] [status::in-progress] #agent-task ^blockid
+ *   Linked:  - [ ] [[Task title]] [agent::claude-1] [status::in-progress] #agent-task ^blockid
+ *            (body lives in OBSIDIAN_KANBAN_NOTES/{title}.md)
  *
  * Usage: bun kanban.ts <command> [args]
  */
@@ -15,6 +17,7 @@ import { $ } from "bun";
 
 const VAULT = process.env.OBSIDIAN_VAULT;
 const vaultArg = VAULT ? [`vault=${VAULT}`] : [];
+const NOTES_FOLDER = process.env.OBSIDIAN_KANBAN_NOTES ?? "Agents/Tasks";
 
 // === Data Structures ===
 
@@ -436,6 +439,21 @@ async function cmdGet(boardPath: string, blockId: string): Promise<void> {
     process.exit(1);
   }
 
+  // Resolve body: linked note takes priority over inline body
+  let body: string | null = item.body ?? null;
+  let noteLink: string | null = null;
+
+  const wikilinkMatch = item.text.match(/^\[\[(.+?)\]\]$/);
+  if (wikilinkMatch) {
+    const noteName = wikilinkMatch[1];
+    const notePath = `${NOTES_FOLDER}/${noteName}.md`;
+    noteLink = notePath;
+    const noteContent = await $`obsidian read path=${notePath} ${vaultArg}`.text();
+    if (!noteContent.startsWith("Error:")) {
+      body = noteContent.trim();
+    }
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -445,7 +463,8 @@ async function cmdGet(boardPath: string, blockId: string): Promise<void> {
         checked: item.checked,
         fields: item.fields,
         tags: item.tags,
-        body: item.body ?? null,
+        noteLink,
+        body,
       },
       null,
       2,
@@ -453,7 +472,7 @@ async function cmdGet(boardPath: string, blockId: string): Promise<void> {
   );
 }
 
-async function cmdDelete(boardPath: string, blockId: string): Promise<void> {
+async function cmdDelete(boardPath: string, blockId: string, deleteNote = false): Promise<void> {
   const board = await readBoard(boardPath);
   const item = findItemById(board, blockId);
 
@@ -462,11 +481,22 @@ async function cmdDelete(boardPath: string, blockId: string): Promise<void> {
     process.exit(1);
   }
 
+  // Optionally delete linked note
+  let deletedNote: string | null = null;
+  if (deleteNote) {
+    const wikilinkMatch = item.text.match(/^\[\[(.+?)\]\]$/);
+    if (wikilinkMatch) {
+      const notePath = `${NOTES_FOLDER}/${wikilinkMatch[1]}.md`;
+      await $`obsidian delete path=${notePath} permanent ${vaultArg}`.quiet();
+      deletedNote = notePath;
+    }
+  }
+
   // Remove item line + body lines
   board.rawLines.splice(item.lineIndex, 1 + item.bodyLineCount);
   await writeBoard(board);
 
-  console.log(JSON.stringify({ success: true, id: blockId, deleted: true }));
+  console.log(JSON.stringify({ success: true, id: blockId, deleted: true, deletedNote }));
 }
 
 async function cmdAddTask(
@@ -487,7 +517,17 @@ async function cmdAddTask(
   const fields: Record<string, string> = { ...options.fields };
   if (options.priority) fields.priority = options.priority;
 
-  let line = `- [ ] ${title}`;
+  // If description is provided, create a linked note and use [[title]] wikilink
+  let cardTitle = title;
+  let notePath: string | null = null;
+
+  if (options.description) {
+    notePath = `${NOTES_FOLDER}/${title}.md`;
+    await $`obsidian create path=${notePath} content=${options.description.trim()} overwrite ${vaultArg}`.quiet();
+    cardTitle = `[[${title}]]`;
+  }
+
+  let line = `- [ ] ${cardTitle}`;
 
   for (const [k, v] of Object.entries(fields)) {
     line += ` [${k}::${v}]`;
@@ -495,21 +535,11 @@ async function cmdAddTask(
 
   line += ` #agent-task ^${blockId}`;
 
-  // Append description as indented body lines (4 spaces, matching obsidian-kanban format)
-  if (options.description) {
-    const body = options.description
-      .trim()
-      .split("\n")
-      .map((l) => `    ${l}`)
-      .join("\n");
-    line += "\n" + body;
-  }
-
   const insertIndex = findInsertionPoint(board.rawLines, lane.startLine, lane.endLine);
   board.rawLines.splice(insertIndex, 0, line);
   await writeBoard(board);
 
-  console.log(JSON.stringify({ success: true, id: blockId, lane: laneName, title }));
+  console.log(JSON.stringify({ success: true, id: blockId, lane: laneName, title, noteLink: notePath }));
 }
 
 // === CLI ===
@@ -592,7 +622,7 @@ const commands: Record<string, () => Promise<void>> = {
   },
 
   async delete() {
-    await cmdDelete(requireOption("board"), requireOption("id"));
+    await cmdDelete(requireOption("board"), requireOption("id"), "delete-note" in options);
   },
 
   async "add-task"() {
@@ -638,8 +668,8 @@ Commands:
                 [--description <text>]
       Add a new task card (description becomes indented card body)
 
-  delete        --board <path>  --id <blockId>
-      Remove a card from the board
+  delete        --board <path>  --id <blockId>  [--delete-note]
+      Remove a card from the board (--delete-note also removes the linked note)
 
 Examples:
   bun kanban.ts board-status --board "Agents/Mission-Control.md"
@@ -651,7 +681,8 @@ Examples:
   bun kanban.ts add-task --board "Agents/Mission-Control.md" --title "Refactor auth module" --lane Backlog --priority high
 
 Environment:
-  OBSIDIAN_VAULT   Vault name to target (optional, defaults to active vault)
+  OBSIDIAN_VAULT         Vault name to target (optional, defaults to active vault)
+  OBSIDIAN_KANBAN_NOTES  Folder for linked task notes (default: Agents/Tasks)
 `);
   process.exit(command ? 1 : 0);
 }
