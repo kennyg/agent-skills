@@ -542,6 +542,52 @@ async function cmdAddTask(
   console.log(JSON.stringify({ success: true, id: blockId, lane: laneName, title, noteLink: notePath }));
 }
 
+async function cmdPromote(
+  boardPath: string,
+  blockId: string,
+  targetLaneName: string,
+  options: { title?: string; priority?: string; fields?: Record<string, string>; description?: string },
+): Promise<void> {
+  const board = await readBoard(boardPath);
+
+  const item = board.lanes.flatMap((l) => l.items).find((i) => i.blockId === blockId);
+  if (!item) {
+    console.error(`Item ${blockId} not found`);
+    process.exit(1);
+  }
+
+  if (!findLane(board, targetLaneName)) {
+    console.error(`Lane "${targetLaneName}" not found`);
+    process.exit(1);
+  }
+
+  const newBlockId = generateBlockId();
+  const title = options.title ?? item.text.replace(/^\[\[(.+)\]\]$/, "$1");
+  const fields: Record<string, string> = { ...options.fields };
+  if (options.priority) fields.priority = options.priority;
+
+  // Create linked note if description provided
+  let cardTitle = title;
+  let notePath: string | null = null;
+  if (options.description) {
+    notePath = `${NOTES_FOLDER}/${title}.md`;
+    await $`obsidian create path=${notePath} content=${options.description.trim()} overwrite ${vaultArg}`.quiet();
+    cardTitle = `[[${title}]]`;
+  }
+
+  let newLine = `- [ ] ${cardTitle}`;
+  for (const [k, v] of Object.entries(fields)) {
+    newLine += ` [${k}::${v}]`;
+  }
+  newLine += ` #agent-task ^${newBlockId}`;
+
+  // Single read → remove source → insert in target → single write
+  moveItem(board, item, targetLaneName, newLine);
+  await writeBoard(board);
+
+  console.log(JSON.stringify({ success: true, from: blockId, to: newBlockId, lane: targetLaneName, title, noteLink: notePath }));
+}
+
 // === CLI ===
 
 function parseArgs(argv: string[]): { positional: string[]; options: Record<string, string> } {
@@ -632,6 +678,20 @@ const commands: Record<string, () => Promise<void>> = {
       description = await Bun.file(description.slice(1)).text();
     }
     await cmdAddTask(requireOption("board"), requireOption("title"), requireOption("lane"), {
+      priority: options.priority,
+      fields: extraFields,
+      description,
+    });
+  },
+
+  async promote() {
+    const extraFields = options.fields ? parseFieldsArg(options.fields) : {};
+    let description = options.description;
+    if (description?.startsWith("@")) {
+      description = await Bun.file(description.slice(1)).text();
+    }
+    await cmdPromote(requireOption("board"), requireOption("id"), requireOption("lane"), {
+      title: options.title,
       priority: options.priority,
       fields: extraFields,
       description,
