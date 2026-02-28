@@ -23,7 +23,7 @@ bun scripts/kanban.ts <command> [args]
 | `update --board <path> --id <blockId> --status <value> [--note <text>]`                                      | Update status in place          |
 | `complete --board <path> --id <blockId>`                                                                     | Mark done, move to Done lane    |
 | `fail --board <path> --id <blockId> [--reason <text>]`                                                       | Move to Failed lane             |
-| `add-task --board <path> --title <text> --lane <name> [--priority high\|medium\|low] [--fields key=val,...]` | Add a new card                  |
+| `add-task --board <path> --title <text> --lane <name> [--priority high\|medium\|low] [--fields key=val,...] [--description <text>]` | Add a new card with optional body |
 
 All commands output JSON to stdout. Errors go to stderr with a non-zero exit code.
 
@@ -105,7 +105,7 @@ Backlog → Ready → In Progress → Blocked → Done → Failed
 
 ## Dispatching Tasks to Agents
 
-Add tasks to the Ready lane to make them claimable:
+Add tasks to the Ready lane to make them claimable. Use `--description` to include acceptance criteria and definition of done:
 
 ```bash
 bun scripts/kanban.ts add-task \
@@ -113,8 +113,19 @@ bun scripts/kanban.ts add-task \
   --title "Refactor auth module" \
   --lane Ready \
   --priority high \
-  --fields "target=src/auth,deadline=2026-03-01"
+  --description "**Goal:** Extract auth logic into a standalone module.
+
+**Acceptance Criteria:**
+- [ ] Auth logic lives in src/auth/
+- [ ] Existing tests still pass
+
+**Definition of Done:**
+- [ ] Tests pass
+- [ ] PR merged to main
+- [ ] Board card marked complete"
 ```
+
+See [templates/kanban-task.md](../templates/kanban-task.md) for the full task template.
 
 ## Environment
 

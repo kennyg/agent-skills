@@ -404,7 +404,7 @@ async function cmdAddTask(
   boardPath: string,
   title: string,
   laneName: string,
-  options: { priority?: string; fields?: Record<string, string> },
+  options: { priority?: string; fields?: Record<string, string>; description?: string },
 ): Promise<void> {
   const board = await readBoard(boardPath);
 
@@ -425,6 +425,16 @@ async function cmdAddTask(
   }
 
   line += ` #agent-task ^${blockId}`;
+
+  // Append description as indented body lines (4 spaces, matching obsidian-kanban format)
+  if (options.description) {
+    const body = options.description
+      .trim()
+      .split("\n")
+      .map((l) => `    ${l}`)
+      .join("\n");
+    line += "\n" + body;
+  }
 
   const insertIndex = findInsertionPoint(board.rawLines, lane.startLine, lane.endLine);
   board.rawLines.splice(insertIndex, 0, line);
@@ -513,6 +523,7 @@ const commands: Record<string, () => Promise<void>> = {
     await cmdAddTask(requireOption("board"), requireOption("title"), requireOption("lane"), {
       priority: options.priority,
       fields: extraFields,
+      description: options.description,
     });
   },
 };
@@ -544,7 +555,8 @@ Commands:
 
   add-task      --board <path>  --title <text>  --lane <name>
                 [--priority high|medium|low]  [--fields key=val,...]
-      Add a new task card
+                [--description <text>]
+      Add a new task card (description becomes indented card body)
 
 Examples:
   bun kanban.ts board-status --board "Agents/Mission-Control.md"
