@@ -15,17 +15,17 @@ Programmatic interface for agents to interact with [obsidian-kanban](https://git
 bun scripts/kanban.ts <command> [args]
 ```
 
-| Command                                                                                                      | Description                     |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| `board-status --board <path>`                                                                                | Lane summary with item counts   |
-| `list --board <path> [--lane <name>] [--agent <name>]`                                                       | List items as JSON              |
-| `get --board <path> --id <blockId>`                                                                          | Get full card including body    |
-| `claim --board <path> --id <blockId> --agent <name>`                                                         | Claim task, move to In Progress |
-| `update --board <path> --id <blockId> --status <value> [--note <text>]`                                      | Update status in place          |
-| `complete --board <path> --id <blockId>`                                                                     | Mark done, move to Done lane    |
-| `fail --board <path> --id <blockId> [--reason <text>]`                                                       | Move to Failed lane             |
-| `add-task --board <path> --title <text> --lane <name> [--priority high\|medium\|low] [--fields key=val,...] [--description <text>]` | Add a new card with optional body |
-| `delete --board <path> --id <blockId>`                                                                       | Remove a card from the board    |
+| Command                                                                                                      | Description                       |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| `board-status --board <path>`                                                                                | Lane summary with item counts     |
+| `list --board <path> [--lane <name>] [--agent <name>]`                                                       | List items as JSON                |
+| `get --board <path> --id <blockId>`                                                                          | Get full card + body/linked note  |
+| `claim --board <path> --id <blockId> --agent <name>`                                                         | Claim task, move to In Progress   |
+| `update --board <path> --id <blockId> --status <value> [--note <text>]`                                      | Update status in place            |
+| `complete --board <path> --id <blockId>`                                                                     | Mark done, move to Done lane      |
+| `fail --board <path> --id <blockId> [--reason <text>]`                                                       | Move to Failed lane               |
+| `add-task --board <path> --title <text> --lane <name> [--priority high\|medium\|low] [--fields key=val,...] [--description <text>]` | Add a new card |
+| `delete --board <path> --id <blockId> [--delete-note]`                                                       | Remove card (and optional note)   |
 
 All commands output JSON to stdout. Errors go to stderr with a non-zero exit code.
 
@@ -57,7 +57,7 @@ bun scripts/kanban.ts claim \
 bun scripts/kanban.ts get \
   --board "Agents/Mission-Control.md" \
   --id abc123def
-# → returns full card including body (Goal, Acceptance Criteria, Definition of Done)
+# → returns title, fields, tags, noteLink, and body (Goal, Acceptance Criteria, DoD)
 ```
 
 ### 4. Update status while working
@@ -85,14 +85,25 @@ bun scripts/kanban.ts fail \
   --reason "Build failed: missing dependency"
 ```
 
-## Card Format
+## Card Formats
+
+### Simple card
 
 ```markdown
 - [ ] Task title [agent::claude-1] [status::in-progress] [priority::high] #agent-task #in-progress ^abc123def
 ```
 
+### Linked note card (preferred for tasks with descriptions)
+
+```markdown
+- [ ] [[Task title]] [agent::claude-1] [status::in-progress] [priority::high] #agent-task #in-progress ^abc123def
+```
+
+The card title is a wikilink — clicking it opens the full task note in Obsidian. The note lives at `OBSIDIAN_KANBAN_NOTES/{title}.md` (default: `Agents/Tasks/`). `get` reads the note and returns it as `body`.
+
 | Part                               | Purpose                                                 |
 | ---------------------------------- | ------------------------------------------------------- |
+| `[[Title]]`                        | Wikilink to task note (Goal, Acceptance Criteria, DoD)  |
 | `[agent::name]`                    | Which agent claimed this                                |
 | `[status::value]`                  | Current status (in-progress, blocked, complete, failed) |
 | `[priority::value]`                | high / medium / low                                     |
@@ -116,7 +127,7 @@ Backlog → Ready → In Progress → Blocked → Done → Failed
 
 ## Dispatching Tasks to Agents
 
-Add tasks to the Ready lane to make them claimable. Use `--description` to include acceptance criteria and definition of done:
+Add tasks to the Ready lane. Use `--description` to create a linked note with acceptance criteria and definition of done — the card stays clean on the board, full details open on click:
 
 ```bash
 bun scripts/kanban.ts add-task \
@@ -136,12 +147,15 @@ bun scripts/kanban.ts add-task \
 - [ ] Board card marked complete"
 ```
 
+This creates `Agents/Tasks/Refactor auth module.md` with the description, and the card title becomes `[[Refactor auth module]]`.
+
 See [templates/kanban-task.md](../templates/kanban-task.md) for the full task template.
 
 ## Environment
 
 ```bash
-export OBSIDIAN_VAULT="icloud-vault"   # Optional — defaults to active vault
+export OBSIDIAN_VAULT="icloud-vault"      # Optional — defaults to active vault
+export OBSIDIAN_KANBAN_NOTES="Agents/Tasks"  # Optional — folder for linked task notes
 ```
 
 ## Status Values

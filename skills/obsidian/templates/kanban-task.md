@@ -1,21 +1,25 @@
 # Kanban Task Template
 
-Use this structure when adding tasks to the Mission Control board via `add-task --description`.
+Use this structure when dispatching tasks to agents via `add-task --description`.
 
-## Card Structure
+When `--description` is provided, the CLI automatically:
+- Creates a note at `Agents/Tasks/{title}.md` with the description
+- Sets the card title to `[[title]]` (wikilink) so it opens in Obsidian on click
+- `get` reads the note and returns the body to agents
+
+## Description Format
 
 ```
-- [ ] <Title> [priority::high|medium|low] #agent-task ^<blockid>
-    **Goal:** <What needs to be accomplished>
+**Goal:** <What needs to be accomplished — one sentence>
 
-    **Acceptance Criteria:**
-    - [ ] <Specific, testable criterion>
-    - [ ] <Another criterion>
+**Acceptance Criteria:**
+- [ ] <Specific, testable criterion>
+- [ ] <Another criterion>
 
-    **Definition of Done:**
-    - [ ] Output verified / tests pass
-    - [ ] Changes committed and pushed
-    - [ ] Board card marked complete
+**Definition of Done:**
+- [ ] Output verified / tests pass
+- [ ] Changes committed and pushed
+- [ ] Board card marked complete
 ```
 
 ## Example
@@ -39,12 +43,29 @@ bun scripts/kanban.ts add-task \
 - [ ] Board card marked complete"
 ```
 
-## Fields
+Creates card on board:
+```markdown
+- [ ] [[Refactor auth module]] [priority::high] #agent-task ^blockid
+```
 
-| Field        | Required | Values                  |
-| ------------ | -------- | ----------------------- |
-| `--title`    | Yes      | Short imperative phrase |
-| `--lane`     | Yes      | Backlog, Ready          |
-| `--priority` | No       | high, medium, low       |
-| `--description` | No    | Multi-line body text    |
-| `--fields`   | No       | `key=val,...` pairs     |
+And note at `Agents/Tasks/Refactor auth module.md` with the full description.
+
+## Agent Reading Pattern
+
+After claiming a task, agents read the full card with:
+
+```bash
+bun scripts/kanban.ts get --board "Agents/Mission-Control.md" --id <blockId>
+```
+
+Response includes `noteLink` and `body` — agents should read `body` to understand the Goal, Acceptance Criteria, and Definition of Done before starting work.
+
+## Fields Reference
+
+| Flag            | Required | Values                        |
+| --------------- | -------- | ----------------------------- |
+| `--title`       | Yes      | Short imperative phrase       |
+| `--lane`        | Yes      | `Backlog`, `Ready`            |
+| `--priority`    | No       | `high`, `medium`, `low`       |
+| `--description` | No       | Multi-line body (creates note)|
+| `--fields`      | No       | `key=val,...` custom fields   |
