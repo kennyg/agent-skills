@@ -627,10 +627,14 @@ const commands: Record<string, () => Promise<void>> = {
 
   async "add-task"() {
     const extraFields = options.fields ? parseFieldsArg(options.fields) : {};
+    let description = options.description;
+    if (description?.startsWith("@")) {
+      description = await Bun.file(description.slice(1)).text();
+    }
     await cmdAddTask(requireOption("board"), requireOption("title"), requireOption("lane"), {
       priority: options.priority,
       fields: extraFields,
-      description: options.description,
+      description,
     });
   },
 };
