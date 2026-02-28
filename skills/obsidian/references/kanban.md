@@ -19,11 +19,13 @@ bun scripts/kanban.ts <command> [args]
 | ------------------------------------------------------------------------------------------------------------ | ------------------------------- |
 | `board-status --board <path>`                                                                                | Lane summary with item counts   |
 | `list --board <path> [--lane <name>] [--agent <name>]`                                                       | List items as JSON              |
+| `get --board <path> --id <blockId>`                                                                          | Get full card including body    |
 | `claim --board <path> --id <blockId> --agent <name>`                                                         | Claim task, move to In Progress |
 | `update --board <path> --id <blockId> --status <value> [--note <text>]`                                      | Update status in place          |
 | `complete --board <path> --id <blockId>`                                                                     | Mark done, move to Done lane    |
 | `fail --board <path> --id <blockId> [--reason <text>]`                                                       | Move to Failed lane             |
 | `add-task --board <path> --title <text> --lane <name> [--priority high\|medium\|low] [--fields key=val,...] [--description <text>]` | Add a new card with optional body |
+| `delete --board <path> --id <blockId>`                                                                       | Remove a card from the board    |
 
 All commands output JSON to stdout. Errors go to stderr with a non-zero exit code.
 
@@ -49,7 +51,16 @@ bun scripts/kanban.ts claim \
 # → moves card to In Progress, adds [agent::claude-1] [status::in-progress] [claimed_at::DATE]
 ```
 
-### 3. Update status while working
+### 3. Read the full card
+
+```bash
+bun scripts/kanban.ts get \
+  --board "Agents/Mission-Control.md" \
+  --id abc123def
+# → returns full card including body (Goal, Acceptance Criteria, Definition of Done)
+```
+
+### 4. Update status while working
 
 ```bash
 bun scripts/kanban.ts update \
@@ -59,7 +70,7 @@ bun scripts/kanban.ts update \
   --note "Waiting on API credentials"
 ```
 
-### 4. Complete or fail
+### 5. Complete or fail
 
 ```bash
 # Success

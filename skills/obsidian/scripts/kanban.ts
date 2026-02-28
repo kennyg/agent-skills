@@ -27,6 +27,8 @@ interface KanbanItem {
   fields: Record<string, string>;
   tags: string[];
   laneTitle: string;
+  body?: string;        // dedented body text (acceptance criteria, DoD, etc.)
+  bodyLineCount: number; // number of body lines following the item line
 }
 
 interface KanbanLane {
@@ -81,7 +83,7 @@ function parseItem(line: string, lineIndex: number, laneTitle: string): KanbanIt
     .replace(/\s{2,}/g, " ")
     .trim();
 
-  return { lineIndex, raw: line, checked, text, blockId, fields, tags, laneTitle };
+  return { lineIndex, raw: line, checked, text, blockId, fields, tags, laneTitle, bodyLineCount: 0 };
 }
 
 async function readBoard(boardPath: string): Promise<KanbanBoard> {
@@ -112,7 +114,21 @@ async function readBoard(boardPath: string): Promise<KanbanBoard> {
 
     if (currentLane) {
       const item = parseItem(line, i, currentLane.title);
-      if (item) currentLane.items.push(item);
+      if (item) {
+        // Collect indented body lines (4 spaces or tab) following the item
+        const bodyLines: string[] = [];
+        let j = i + 1;
+        while (j < rawLines.length && /^(    |\t)/.test(rawLines[j])) {
+          bodyLines.push(rawLines[j].replace(/^(    |\t)/, ""));
+          j++;
+        }
+        if (bodyLines.length > 0) {
+          item.body = bodyLines.join("\n");
+          item.bodyLineCount = bodyLines.length;
+        }
+        i = j - 1; // skip body lines in outer loop
+        currentLane.items.push(item);
+      }
     }
   }
 
@@ -194,24 +210,29 @@ function moveItem(
     throw new Error(`Lane "${targetLaneName}" not found`);
   }
 
-  // Remove old line
-  board.rawLines.splice(item.lineIndex, 1);
+  // Capture body lines before removing
+  const bodyLines = board.rawLines.slice(
+    item.lineIndex + 1,
+    item.lineIndex + 1 + item.bodyLineCount,
+  );
 
-  // After removal, all lines after lineIndex shift by -1
+  // Remove item line + body lines
+  const removeCount = 1 + item.bodyLineCount;
+  board.rawLines.splice(item.lineIndex, removeCount);
+
+  // After removal, all lines after lineIndex shift by -removeCount
   // Adjust target lane boundaries
   let insertIndex: number;
   if (item.lineIndex < targetLane.startLine) {
-    // Item was before target lane — shift adjustments
-    const adjustedStart = targetLane.startLine - 1;
-    const adjustedEnd = targetLane.endLine - 1;
-
-    // Find last item in the (now adjusted) target lane
+    const adjustedStart = targetLane.startLine - removeCount;
+    const adjustedEnd = targetLane.endLine - removeCount;
     insertIndex = findInsertionPoint(board.rawLines, adjustedStart, adjustedEnd);
   } else {
     insertIndex = findInsertionPoint(board.rawLines, targetLane.startLine, targetLane.endLine);
   }
 
-  board.rawLines.splice(insertIndex, 0, newLine);
+  // Insert new item line followed by original body lines
+  board.rawLines.splice(insertIndex, 0, newLine, ...bodyLines);
 }
 
 /**
@@ -219,17 +240,23 @@ function moveItem(
  * Inserts after the last item line in the lane, before the next ## or end.
  */
 function findInsertionPoint(lines: string[], laneStart: number, laneEnd: number): number {
-  let lastItemLine = laneStart + 1; // default: right after lane header
+  let lastItemEnd = laneStart + 1; // default: right after lane header
 
   for (let i = laneStart + 1; i < Math.min(laneEnd, lines.length); i++) {
     if (lines[i].match(/^- \[/)) {
-      lastItemLine = i + 1;
+      // Advance past any body lines (indented with 4 spaces or tab)
+      let end = i + 1;
+      while (end < Math.min(laneEnd, lines.length) && /^(    |\t)/.test(lines[end])) {
+        end++;
+      }
+      lastItemEnd = end;
+      i = end - 1; // outer loop will i++ past body lines
     } else if (lines[i].match(/^## /)) {
       break;
     }
   }
 
-  return lastItemLine;
+  return lastItemEnd;
 }
 
 // === Status tag management ===
@@ -400,6 +427,48 @@ async function cmdFail(boardPath: string, blockId: string, reason?: string): Pro
   console.log(JSON.stringify({ success: true, id: blockId, lane: "Failed" }));
 }
 
+async function cmdGet(boardPath: string, blockId: string): Promise<void> {
+  const board = await readBoard(boardPath);
+  const item = findItemById(board, blockId);
+
+  if (!item) {
+    console.error(`Item "${blockId}" not found`);
+    process.exit(1);
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        id: item.blockId,
+        text: item.text,
+        lane: item.laneTitle,
+        checked: item.checked,
+        fields: item.fields,
+        tags: item.tags,
+        body: item.body ?? null,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function cmdDelete(boardPath: string, blockId: string): Promise<void> {
+  const board = await readBoard(boardPath);
+  const item = findItemById(board, blockId);
+
+  if (!item) {
+    console.error(`Item "${blockId}" not found`);
+    process.exit(1);
+  }
+
+  // Remove item line + body lines
+  board.rawLines.splice(item.lineIndex, 1 + item.bodyLineCount);
+  await writeBoard(board);
+
+  console.log(JSON.stringify({ success: true, id: blockId, deleted: true }));
+}
+
 async function cmdAddTask(
   boardPath: string,
   title: string,
@@ -518,6 +587,14 @@ const commands: Record<string, () => Promise<void>> = {
     await cmdFail(requireOption("board"), requireOption("id"), options.reason);
   },
 
+  async get() {
+    await cmdGet(requireOption("board"), requireOption("id"));
+  },
+
+  async delete() {
+    await cmdDelete(requireOption("board"), requireOption("id"));
+  },
+
   async "add-task"() {
     const extraFields = options.fields ? parseFieldsArg(options.fields) : {};
     await cmdAddTask(requireOption("board"), requireOption("title"), requireOption("lane"), {
@@ -541,6 +618,9 @@ Commands:
   list          --board <path>  [--lane <name>]  [--agent <name>]
       List items as JSON (optionally filtered)
 
+  get           --board <path>  --id <blockId>
+      Get full card details including body (acceptance criteria, DoD)
+
   claim         --board <path>  --id <blockId>  --agent <name>
       Claim a task from the Ready lane and move it to In Progress
 
@@ -557,6 +637,9 @@ Commands:
                 [--priority high|medium|low]  [--fields key=val,...]
                 [--description <text>]
       Add a new task card (description becomes indented card body)
+
+  delete        --board <path>  --id <blockId>
+      Remove a card from the board
 
 Examples:
   bun kanban.ts board-status --board "Agents/Mission-Control.md"
