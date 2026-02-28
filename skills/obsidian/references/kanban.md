@@ -145,4 +145,8 @@ Enable once via:
 obsidian snippet:enable name=agent-mission-control
 ```
 
-Requires the [obsidian-kanban plugin](https://github.com/mgmeyers/obsidian-kanban) fork at `kennyg/obsidian-kanban` for full `[data-metadata-value]` CSS targeting (optional — tag-based coloring works without it).
+Requires the [obsidian-kanban plugin](https://github.com/mgmeyers/obsidian-kanban) fork at [`kennyg/obsidian-kanban`](https://github.com/kennyg/obsidian-kanban) for full `[data-metadata-value]` CSS targeting (optional — tag-based coloring works without it).
+
+## Scripts
+
+Scripts live in [`kennyg/agent-toolkit`](https://github.com/kennyg/agent-toolkit) under `skills/obsidian/scripts/kanban.ts`.
