@@ -184,7 +184,7 @@ function main() {
     ...sections.map((s) => `${s.sectionNum} ${s.name}`.length),
   );
   const wTag = Math.max("Tag".length, ...sections.map((s) => s.tag.length));
-  const wShalls = Math.max("SHALLLs".length, 4);
+  const wShalls = Math.max("SHALLs".length, 4);
   const wScenarios = Math.max("Scenarios".length, 4);
   const wStatus = Math.max("Status".length, 16);
   const totalWidth = wSection + 2 + wTag + 2 + wShalls + 2 + wScenarios + 2 + wStatus;
@@ -193,7 +193,7 @@ function main() {
   console.log("\u2550".repeat(totalWidth));
   console.log();
   console.log(
-    `${pad("Section", wSection)}  ${pad("Tag", wTag)}  ${pad("SHALLLs", wShalls)}  ${pad("Scenarios", wScenarios)}  Status`,
+    `${pad("Section", wSection)}  ${pad("Tag", wTag)}  ${pad("SHALLs", wShalls)}  ${pad("Scenarios", wScenarios)}  Status`,
   );
   console.log("\u2500".repeat(totalWidth));
 
