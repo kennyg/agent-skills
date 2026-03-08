@@ -18,11 +18,13 @@ Skills are reusable extensions that give AI coding agents specialized capabiliti
 
 | Skill | Description |
 |-------|-------------|
+| [gherkin-step-scaffold](skills/gherkin-step-scaffold/) | Scaffold step definitions from Cucumber feature files |
 | [github-gist](skills/github-gist/) | Create GitHub gists from files or snippets |
 | [hk-setup](skills/hk-setup/) | Set up hk git hooks with pre-commit linters |
 | [jenkins-migrate](skills/jenkins-migrate/) | Convert Jenkins pipelines to GitHub Actions |
 | [mise-setup](skills/mise-setup/) | Set up mise dev tool version manager |
 | [obsidian](skills/obsidian/) | Read, write, search, and manage Obsidian vault notes |
+| [openspec-to-gherkin](skills/openspec-to-gherkin/) | Generate Gherkin feature files from OpenSpec delta specs |
 | [zensical-setup](skills/zensical-setup/) | Generate documentation sites using Zensical |
 
 ## Installation
