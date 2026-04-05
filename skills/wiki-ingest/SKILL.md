@@ -14,7 +14,7 @@ Process one or more raw sources into the wiki following the LLM wiki pattern. Re
 If the user specifies a file, use that. Otherwise run the check script:
 
 ```bash
-uv run /path/to/skill/scripts/check-sources.py "$CLAUDE_PROJECT_DIR"
+uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR"
 ```
 
 This compares raw source files against Wiki/sources/ and lists any new unprocessed files.

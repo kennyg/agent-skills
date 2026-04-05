@@ -12,7 +12,7 @@ Run a health check on the wiki and report findings. Read CLAUDE.md for vault-spe
 ### 1. Run the lint script
 
 ```bash
-uv run /path/to/skill/scripts/lint-wiki.py "$CLAUDE_PROJECT_DIR"
+uv run <skill-dir>/scripts/lint-wiki.py "$CLAUDE_PROJECT_DIR"
 ```
 
 This scans all wiki pages and reports broken wikilinks, orphan pages, index drift, missing pages (referenced 2+ times), and unprocessed sources.
