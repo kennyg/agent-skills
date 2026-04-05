@@ -80,13 +80,16 @@ def main():
     link_counts: Counter = Counter()
     broken: set[str] = set()
     for target, source in links:
-        # Resolve: wiki page? vault file? basename?
+        # Resolve: wiki page? vault file? basename? (also strip .md suffix)
         if target in pages:
             continue
-        bname = Path(target).name
+        target_no_ext = target.removesuffix(".md")
+        if target_no_ext in pages:
+            continue
+        bname = Path(target).stem
         if bname in pages:
             continue
-        if target in vault_files:
+        if target in vault_files or target_no_ext in vault_files:
             continue
         broken.add(target)
         link_counts[target] += 1
