@@ -1,4 +1,4 @@
-# Agent Toolkit
+# Agent Skills
 
 A collection of portable skills for AI coding agents. Part of the [skills.sh](https://skills.sh/) open ecosystem.
 
