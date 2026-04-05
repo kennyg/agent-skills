@@ -9,13 +9,17 @@ Run a health check on the wiki and report findings. Read CLAUDE.md for vault-spe
 
 ## Workflow
 
-### 1. Load the wiki state
+### 1. Run the lint script
 
-Read `Wiki/index.md` to get the full page inventory.
+```bash
+uv run /path/to/skill/scripts/lint-wiki.py "$CLAUDE_PROJECT_DIR"
+```
 
-### 2. Scan all wiki pages
+This scans all wiki pages and reports broken wikilinks, orphan pages, index drift, missing pages (referenced 2+ times), and unprocessed sources.
 
-Read every file in `Wiki/sources/`, `Wiki/entities/`, `Wiki/concepts/`, `Wiki/synthesis/`.
+### 2. Review the output
+
+The script groups findings by severity. Read the output and plan fixes.
 
 ### 3. Check for issues
 
