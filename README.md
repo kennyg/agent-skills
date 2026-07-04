@@ -21,6 +21,7 @@ Skills are reusable extensions that give AI coding agents specialized capabiliti
 | [annotate](skills/annotate/) | Annotate git commits with structured context |
 | [gherkin-step-scaffold](skills/gherkin-step-scaffold/) | Scaffold step definitions from Cucumber feature files |
 | [github-gist](skills/github-gist/) | Create GitHub gists from files or snippets |
+| [going-ashore](skills/going-ashore/) | Land a first mate + fleet on a remote host over SSH + herdr |
 | [hk-setup](skills/hk-setup/) | Set up hk git hooks with pre-commit linters |
 | [jenkins-migrate](skills/jenkins-migrate/) | Convert Jenkins pipelines to GitHub Actions |
 | [mise-setup](skills/mise-setup/) | Set up mise dev tool version manager |
