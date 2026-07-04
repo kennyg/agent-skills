@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.0 (Unreleased)
+
+Added a runbook skill for landing a first mate and its fleet on a remote host.
+
+### New Skills
+
+- **going-ashore** — Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr; covers survey, provision, raise-the-flag, land, boot, and bridge.
+
+---
+
 ## v1.2.0 (2026-04-05)
 
 Renamed project from Agent Toolkit to **Agent Skills**. Retired the monolithic obsidian skill in favor of focused wiki skills and a standalone annotation skill.
