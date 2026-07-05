@@ -1,4 +1,7 @@
 [tools]
+# hk pinned to match hk.pkl's schema version so the binary and schema stay in
+# lockstep across machines (incl. Linux fleet hosts without brew).
+hk = "1.49.0"
 # Linters (for hk pre-commit hooks)
 shellcheck = "latest"
 shfmt = "latest"
