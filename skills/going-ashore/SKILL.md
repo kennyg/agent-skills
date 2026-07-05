@@ -31,10 +31,13 @@ prerequisites are easy to miss:** the **harness** (Claude Code) itself, and its
 provision script.
 
 ## Phase 2 — Provision the toolchain — `scripts/going-ashore.sh`
-Installs the firstmate toolchain **via mise** (the captain's preferred tool
-manager): herdr, treehouse, no-mistakes, each through the mise registry name or
-`github:` backend (`ubi:` is deprecated), falling back to the vendor installer.
-Idempotent. Captain runs it (installs software):
+Installs the firstmate toolchain — herdr, treehouse, no-mistakes — using each
+tool's **native vendor installer, targeting `/usr/local/bin`**. That dir is on
+the default PATH, including the non-interactive, non-login shell a plain
+`ssh <host> 'herdr ...'` gets (where `~/.local/bin` and mise's shims are *not*),
+so the tools resolve over the exact SSH path herdr's backend uses. mise is still
+installed (for tools like node) and kept as a per-tool **fallback** if a vendor
+installer fails. Idempotent. Captain runs it (installs software):
 ```
 ! ssh <host> 'bash -s' < <skill>/scripts/going-ashore.sh
 ```
@@ -87,6 +90,10 @@ needs matching herdr protocol versions on both ends (check `herdr --version`).
 - **The vault stays home.** iCloud/Obsidian doesn't follow to the host, so wiki
   work (the vault curator) stays local. The host is for project work.
 - **Separate fleet.** The host's first mate has its own backlog/projects/crew.
+- **No version pin.** The native installers always fetch the **latest** published
+  release of each tool. That's correct for a fresh landing, but matching an
+  existing fleet's exact tool versions is a separate step this script does not
+  guarantee.
 - **Boot durability.** The `setsid herdr server` survives disconnects but NOT a
   host reboot. For set-and-forget, install a systemd **user** unit that runs
   `herdr server` on boot (`loginctl enable-linger <user>` so it starts without a
