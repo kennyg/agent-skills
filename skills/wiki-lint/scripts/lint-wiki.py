@@ -15,6 +15,11 @@ from collections import Counter
 from pathlib import Path
 
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+# Obsidian renders wikilinks inside code as literal text, not links. Strip code
+# before extracting so quoted/example links (and Dataview queries) aren't
+# reported as broken.
+FENCED_CODE_RE = re.compile(r"^(?P<fence>```+|~~~+).*?(?:^(?P=fence).*?$|\Z)", re.M | re.S)
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 SKIP_NAMES = {"_index", "README", "bookmarks"}
 SKIP_SUFFIXES = {"-template"}
 STRUCTURAL = {"index", "log", "overview"}
@@ -35,11 +40,17 @@ def find_vault_files(vault: Path) -> set[str]:
     return names
 
 
+def strip_code(text: str) -> str:
+    """Remove fenced blocks and inline code spans."""
+    text = FENCED_CODE_RE.sub("", text)
+    return INLINE_CODE_RE.sub("", text)
+
+
 def extract_wikilinks(wiki: Path) -> list[tuple[str, str]]:
     """Extract (link_target, source_file) pairs from all wiki pages."""
     links = []
     for f in wiki.rglob("*.md"):
-        text = f.read_text(errors="replace")
+        text = strip_code(f.read_text(errors="replace"))
         for m in WIKILINK_RE.finditer(text):
             raw = m.group(1)
             target = raw.split("|")[0].split("#")[0].strip()
