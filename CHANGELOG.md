@@ -8,6 +8,10 @@ Added a runbook skill for landing a first mate and its fleet on a remote host.
 
 - **going-ashore** — Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr; covers survey, provision, raise-the-flag, land, boot, and bridge.
 
+### Fixes
+
+- **wiki-lint** — Wikilinks inside code spans and fenced blocks are no longer reported as broken links. Obsidian renders these as literal text, so quoted example links and Dataview queries containing `[[...]]` were false positives.
+
 ---
 
 ## v1.2.0 (2026-04-05)
