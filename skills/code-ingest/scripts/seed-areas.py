@@ -42,7 +42,10 @@ import yaml
 
 DEFAULT_DB = ".codegraph/codegraph.db"
 ROOT = "<root>"
-KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3, "method": 4}
+# Keep in sync with scaffold-sources.py:SYMBOL_KINDS — otherwise code-areas.yml
+# and the source pages disagree about what counts as a symbol.
+KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3,
+             "method": 4, "constant": 5}
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -98,7 +101,7 @@ def key_symbols(conn: sqlite3.Connection, files: list[str], limit: int = 6) -> l
         f"""SELECT name, kind FROM nodes
             WHERE file_path IN ({placeholders})
               AND is_exported=1
-              AND kind IN ('class','interface','type_alias','function','method')""",
+              AND kind IN ('class','interface','type_alias','function','method','constant')""",
         files,
     ).fetchall()
     rows.sort(key=lambda r: (KIND_RANK.get(r[1], 9), r[0]))
@@ -188,6 +191,7 @@ def main() -> int:
     db_path = Path(args.db).expanduser().resolve() if args.db else repo / DEFAULT_DB
     if not db_path.exists():
         print(f"error: codegraph index not found at {db_path}", file=sys.stderr)
+        print(f"       run `codegraph init --index {repo}` first, or pass --db", file=sys.stderr)
         return 2
 
     conn = connect(db_path)

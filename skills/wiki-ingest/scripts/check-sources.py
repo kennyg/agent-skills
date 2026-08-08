@@ -156,18 +156,22 @@ def main() -> int:
 
     vault = Path(args.vault).expanduser().resolve()
 
-    if not (vault / "Wiki").is_dir():
-        print(f"error: {vault / 'Wiki'} not found — is this a wiki root?", file=sys.stderr)
-        return 2
-
     if args.mode == "code":
+        # Wiki/ is this mode's *output*, not its input — a repo being ingested for
+        # the first time has none, and demanding one makes the bootstrap run
+        # impossible. The codegraph index is the real precondition; indexed_sources()
+        # already returns {} for a missing Wiki/, which correctly reports everything
+        # as new. Only files mode uses Wiki/ as a "is this really a vault?" sniff.
         db_path = Path(args.db).expanduser().resolve() if args.db else vault / DEFAULT_DB
         if not db_path.exists():
             print(f"error: codegraph index not found at {db_path}", file=sys.stderr)
-            print("       run `codegraph index` first, or pass --db", file=sys.stderr)
+            print(f"       run `codegraph init --index {vault}` first, or pass --db", file=sys.stderr)
             return 2
         raw = raw_sources_code(db_path)
     else:
+        if not (vault / "Wiki").is_dir():
+            print(f"error: {vault / 'Wiki'} not found — is this a wiki root?", file=sys.stderr)
+            return 2
         raw = raw_sources_files(vault)
 
     new, changed, unchanged = classify(indexed_sources(vault), raw)

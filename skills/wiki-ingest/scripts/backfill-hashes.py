@@ -98,6 +98,7 @@ def main() -> int:
         db_path = Path(args.db).expanduser().resolve() if args.db else vault / DEFAULT_DB
         if not db_path.exists():
             print(f"error: codegraph index not found at {db_path}", file=sys.stderr)
+            print(f"       run `codegraph init --index {vault}` first, or pass --db", file=sys.stderr)
             return 2
         db_map = code_hashes(db_path)
 

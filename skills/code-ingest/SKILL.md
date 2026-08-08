@@ -1,22 +1,31 @@
 ---
 name: code-ingest
-description: "Ingest a codegraph-indexed codebase into a repo-local code wiki. Use when the user says /code-ingest, 'ingest this codebase', 'document this repo', 'build a code wiki', or when working in a repo that has a .codegraph/ index and a Wiki/ directory and the user wants code turned into wiki pages."
+description: "Ingest a codegraph-indexed codebase into a repo-local code wiki. Use when the user says /code-ingest, 'ingest this codebase', 'document this repo', 'build a code wiki', or when working in a repo with a .codegraph/ index (or one that can be indexed) and the user wants code turned into wiki pages. Creates Wiki/ if absent."
 ---
 
 # Code Ingest
 
-Turn a codebase into a navigable wiki, grounded in the [codegraph](https://github.com/) index rather than re-reading every file by hand. Same page taxonomy as `wiki-ingest` (sources → entities → concepts), but the raw sources are code files and the facts come from codegraph's symbol/edge graph.
+Turn a codebase into a navigable wiki, grounded in the [codegraph](https://github.com/colbymchenry/codegraph) index rather than re-reading every file by hand. Same page taxonomy as `wiki-ingest` (sources → entities → concepts), but the raw sources are code files and the facts come from codegraph's symbol/edge graph.
 
 The wiki lives **repo-local** at `<repo>/Wiki/`, next to the code it documents — not in a personal knowledge vault. Read the repo's CLAUDE.md for project-specific conventions first.
 
 ## Prerequisites
 
-The repo must be indexed. Check, and index if needed:
+The repo must be indexed. codegraph takes the project path as a **positional
+argument** — there is no `-p` flag.
 
 ```bash
-codegraph -p "$REPO" status   # confirms .codegraph/codegraph.db exists
-codegraph -p "$REPO" index    # (re)build the index if missing or stale
+codegraph status "$REPO"              # confirms .codegraph/codegraph.db exists
+codegraph init --index "$REPO"        # first time: creates .codegraph/ AND indexes
+codegraph index "$REPO"               # re-index an already-initialized repo
+codegraph sync "$REPO"                # cheaper incremental update
 ```
+
+`index` refuses to run before `init` ("CodeGraph not initialized"), so a repo
+that has never been indexed needs `init --index`, not `index`. Scope comes from
+the repo's `.gitignore`, which codegraph honors — check `status` output before
+ingesting if the repo vendors dependencies or build artifacts that aren't
+ignored.
 
 All facts below come from `<repo>/.codegraph/codegraph.db` (SQLite). Key tables: `files(path, content_hash, language)`, `nodes(kind, name, qualified_name, file_path, signature, ...)`, `edges(source, target, kind)`.
 
@@ -34,43 +43,62 @@ uv run <skill-dir>/scripts/check-sources.py "$REPO" --mode code
 
 ### 2. Read each source, grounded in the graph
 
-Read the file with the Read tool, then pull its symbols and relationships from the index instead of inferring them:
+Read the file with the Read tool. You need it for the prose slots in step 3 —
+what the file is *for*, and what its comments say that the graph cannot.
 
-```bash
-DB="$REPO/.codegraph/codegraph.db"
-# Symbols defined in this file
-sqlite3 -header "$DB" "SELECT kind, name, signature, start_line FROM nodes
-  WHERE file_path='<path>' AND kind IN ('function','method','class','interface','type_alias') ORDER BY start_line;"
-# What this file's symbols call, and who calls into them
-sqlite3 "$DB" "SELECT s.name AS caller, t.name AS callee FROM edges e
-  JOIN nodes s ON e.source=s.id JOIN nodes t ON e.target=t.id
-  WHERE e.kind='calls' AND s.file_path='<path>';"
-```
+Do not hand-write SQL to pull symbols and edges. `scaffold-sources.py` issues
+those queries in step 3 and owns the answers: which node kinds count, whether
+call-site multiplicity is collapsed, how long a signature may be. Duplicating
+them here would create a second definition that drifts from the first.
+
+Ad-hoc queries are still fine for *investigating* something specific — the
+schema is `files(path, content_hash, language)`,
+`nodes(kind, name, qualified_name, file_path, signature, ...)`,
+`edges(source, target, kind)`. Just don't transcribe the results onto a page;
+regenerate the page instead.
+
+Two blind spots to check for rather than assume away. Anonymous callbacks are
+not extracted — a test file of `describe`/`it` bodies, or a config that is one
+arrow function passed to `defineConfig`, yields **zero** named symbols and can
+ground no entity. And `await import(...)` produces no `imports` edge, so
+dynamically-coupled files look unrelated in the graph. Both cases still deserve
+a source page; say in it that the graph is empty and why.
 
 Never modify source code. This skill only reads.
 
-### 3. Create source summary
+### 3. Scaffold source pages, then write only the prose
 
-Write to `Wiki/sources/<slug>.md`, one page per code file. Record the exact `content_hash` codegraph holds so the checker can detect drift:
+Do **not** hand-write source pages. Generate them:
 
-```yaml
----
-type: source-summary
-title: "<path or a human label>"
-source_kind: file
-source_path: "<repo-relative path>"      # e.g. src/resolution/frameworks/svelte.ts
-source_hash: "<files.content_hash for that path>"
-language: "<files.language>"
-date_ingested: <today>
-tags:
-  - wiki/source
-  - <area tags>
----
+```bash
+uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --dry-run    # review first
+uv run <skill-dir>/scripts/scaffold-sources.py "$REPO"
+uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**'  # scope a big repo
 ```
 
-Get `source_hash` with: `sqlite3 "$DB" "SELECT content_hash FROM files WHERE path='<path>';"`
+One page per indexed file at `Wiki/sources/<slug>.md`. The script owns
+everything the graph already knows and writes it into fenced blocks:
 
-Include: Purpose (2–3 sentences), Key Symbols (as `[[wikilinks]]` to entities), Depends On / Used By (from `calls`/`imports` edges), Raw Source link.
+| Section | Fence | Source |
+|---|---|---|
+| frontmatter | — | `files.path`, `content_hash`, `language` |
+| Key Symbols | `<!-- BEGIN:symbols -->` | `nodes` |
+| Depends On | `<!-- BEGIN:depends -->` | outbound `calls` + `imports` edges |
+| Used By | `<!-- BEGIN:usedby -->` | inbound `calls` edges |
+
+**Your job is the two prose slots**, `## Purpose` and `## Notes`, marked with
+`_TODO —_` placeholders. Everything outside a fence survives regeneration, so
+prose written once is never clobbered; re-running refreshes only the tables and
+the `source_hash`. Frontmatter keys the script does not own — `title`, extra
+area tags — are preserved too.
+
+Write Purpose in 2–3 sentences: what the file is for and why it exists. Write
+Notes for what the graph *cannot* say — gotchas, contradictions, dead code, the
+comment that explains an upstream API quirk. Do not restate the symbol table in
+prose; it is already on the page and it is already correct.
+
+Same inputs produce byte-identical output, so a page diff after re-ingest shows
+real code movement rather than rephrasing.
 
 ### 4. Create or update entity pages
 
@@ -103,7 +131,29 @@ Concepts are the architecture the code embodies — subsystems, patterns, data f
 
 When the code contradicts a documented concept (dead code, a pattern half-migrated), note it explicitly on the concept page rather than silently trusting either side.
 
-### 6. Rebuild the index
+### 6. Verify grounding
+
+Before rebuilding the index, prove every page is anchored in real code:
+
+```bash
+uv run <skill-dir>/scripts/verify-grounding.py "$REPO"
+```
+
+It resolves every `realized_by` entry against the index and exits non-zero if
+any fails. Three outcomes:
+
+- **missing** — the symbol is not in the index. Either invented, mistyped, or
+  the code was renamed after ingest. Fix the page, or re-index and re-check.
+- **grounded by file, not symbol** — legal, and the honest fallback for files
+  the extractor could not name, but prefer symbols. `--strict` makes it fail.
+- **no `realized_by` at all** — an ungrounded page, which the code wiki should
+  not contain. Fails by default; `--allow-ungrounded` downgrades it to a report.
+
+Do not proceed to step 7 with a failing run. An unverified `realized_by` is
+worse than none: the **Symbols** column in `index.md` will report a count that
+looks like evidence.
+
+### 7. Rebuild the index
 
 Do **not** hand-edit `Wiki/index.md`. Regenerate it from page frontmatter, feeding in the checker's unprocessed list:
 
@@ -114,7 +164,7 @@ uv run <skill-dir>/scripts/rebuild-index.py "$REPO" --unprocessed /tmp/code-sour
 
 Prose you write outside the `<!-- BEGIN:x -->` / `<!-- END:x -->` fences is preserved; only the tables regenerate.
 
-### 7. Refresh the area map
+### 8. Refresh the area map
 
 Regenerate `Wiki/code-areas.yml` — the coarse map of the codebase — from the graph, not by hand:
 
@@ -125,7 +175,11 @@ uv run <skill-dir>/scripts/seed-areas.py "$REPO"             # write it
 
 Areas come from framework **route** nodes when the repo has them (web apps); otherwise the seeder falls back to module boundaries derived from the graph. Always review `--dry-run` before writing.
 
-### 8. Update log
+`key_symbols` lists only `is_exported=1` symbols, so module-private classes are
+absent by design — an empty `key_symbols` means the area exports nothing named,
+not that the seeder failed.
+
+### 9. Update log
 
 Append to `Wiki/log.md`:
 
@@ -137,15 +191,15 @@ Append to `Wiki/log.md`:
 - Updated concepts: [[Concept1]]
 ```
 
-### 9. Report
+### 10. Report
 
 Tell the user what was created/updated and which sources remain unprocessed.
 
 ## Rules
 
 - NEVER modify source code — this skill only reads the repo and writes under `Wiki/`.
-- Ground every entity/concept in `realized_by` symbols that exist in the codegraph index; don't invent structure the graph doesn't support.
+- Ground every entity/concept in `realized_by` symbols that exist in the codegraph index; don't invent structure the graph doesn't support. Prove it with `verify-grounding.py` before generating the index — a `realized_by` nobody checked is decoration.
 - Record `source_hash` on every source page (the file's `content_hash`) so re-ingest is change-driven, not blind.
-- Regenerate `index.md` and `code-areas.yml` with the scripts; never hand-maintain them.
+- Generate what the graph knows; write only what it doesn't. Source pages come from `scaffold-sources.py`; `index.md` and `code-areas.yml` from their scripts. Never hand-maintain a generated block — edits inside `<!-- BEGIN:x -->` fences are overwritten on the next run.
 - Use `[[wikilinks]]` heavily; every page gets `type:` and `wiki/*` tags.
 - Re-run `codegraph index` (or `codegraph sync`) before ingest if the working tree has moved since the last index.
