@@ -11,13 +11,13 @@ Process one or more raw sources into the wiki following the LLM wiki pattern. Re
 
 ### 1. Identify sources
 
-If the user specifies a file, use that. Otherwise run the check script:
+If the user specifies a file, use that. Otherwise run the shared checker in files mode:
 
 ```bash
-uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR"
+uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR" --mode files
 ```
 
-This compares raw source files against Wiki/sources/ and lists any new unprocessed files.
+This hashes each raw clipping (sha256) and compares it against the `source_hash` recorded on its `Wiki/sources/` page. It reports both **new** files (never ingested) and **changed** files (edited since ingest) — so a re-clipped or corrected source resurfaces instead of going stale. Add `--json` to feed the index rebuild in step 6.
 
 ### 2. Read each source fully
 
@@ -32,6 +32,7 @@ Write to `Wiki/sources/<slug>.md`:
 type: source-summary
 title: "<title>"
 source_path: "<path from vault root>"
+source_hash: "<sha256 of the raw file>"
 source_url: "<url>"
 author: "<author>"
 date_ingested: <today>
@@ -40,6 +41,8 @@ tags:
   - <topic tags>
 ---
 ```
+
+Get `source_hash` with `shasum -a 256 "<raw file>"` (or `python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "<raw file>"`). It must match what `check-sources.py --mode files` computes, so the checker recognises this source as unchanged on the next run.
 
 Include: Summary (2-3 paragraphs), Key Claims, Entities Mentioned (as `[[wikilinks]]`), Concepts Touched (as `[[wikilinks]]`), Raw Source link.
 
@@ -55,9 +58,16 @@ For each concept, check if `Wiki/concepts/<name>.md` exists.
 - **New**: Create with `type: concept`, `confidence:` (high/medium/low), `source_count: 1`
 - **Existing**: Add insight, update relationships, bump `source_count`, update `date_updated`
 
-### 6. Update index
+### 6. Rebuild index
 
-Edit `Wiki/index.md`: add source to Sources table, add/update entities and concepts tables, remove source from Unprocessed.
+Do **not** hand-edit `Wiki/index.md`. Regenerate it from page frontmatter, feeding in the checker's unprocessed list:
+
+```bash
+uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR" --mode files --json > /tmp/wiki-sources.json
+uv run <skill-dir>/scripts/rebuild-index.py "$CLAUDE_PROJECT_DIR" --unprocessed /tmp/wiki-sources.json
+```
+
+Prose outside the `<!-- BEGIN:x -->` / `<!-- END:x -->` fences is preserved; the Sources/Entities/Concepts/Synthesis/Unprocessed tables regenerate deterministically. On the first run against a legacy hand-maintained index, the old headings and tables are migrated in place (no duplication).
 
 ### 7. Update overview
 
