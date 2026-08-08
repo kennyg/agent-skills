@@ -1,15 +1,25 @@
 # Changelog
 
-## v1.3.0 (Unreleased)
+## v1.3.0 (2026-08-08)
 
-Added a runbook skill for landing a first mate and its fleet on a remote host.
+Added a code wiki skill and a runbook skill for landing a first mate and its fleet on a remote host.
 
 ### New Skills
 
+- **code-ingest** — Turn a codegraph-indexed codebase into a repo-local `Wiki/`. Same sources → entities → concepts taxonomy as wiki-ingest, but grounded in codegraph's symbol/edge graph rather than re-reading every file.
 - **going-ashore** — Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr; covers survey, provision, raise-the-flag, land, boot, and bridge.
+
+### code-ingest Details
+
+- **Deterministic page generation** — `scaffold-sources.py` writes every graph-derivable part of a source page (frontmatter, `source_hash`, symbol table, Depends On, Used By) into `BEGIN`/`END` fences, leaving Purpose and Notes as prose. Same index in, same bytes out; prose and hand-added frontmatter survive regeneration. A missing fence is repaired by appending under its heading, never by stamping a fresh `source_hash` over a section that did not regenerate.
+- **Grounding is now checked, not claimed** — `verify-grounding.py` resolves every `realized_by` entry against the index and exits non-zero on failure, so the **Symbols** column in `index.md` reports verified evidence rather than an unchecked count.
+- **Change-driven re-ingest** — `check-sources.py --mode code` compares each file's codegraph `content_hash` against the `source_hash` on its wiki page, so refactored files resurface instead of going stale.
 
 ### Fixes
 
+- **code-ingest** — Cold-start path was unusable: the documented `codegraph -p` flag does not exist (the path is positional), `index` fails before `init`, and `check-sources.py` demanded a `Wiki/` directory that the first ingest is supposed to create. The `calls` query also lacked `DISTINCT` (one row per call site, not per edge) and the symbol query omitted `constant`, dropping module-level API surface.
+- **code-ingest** — Edge queries suppress `idx_edges_kind`, whose poor selectivity on the largest edge kind caused a near-full edge scan per file (8.6s vs 38ms on a 275-file repo when `ANALYZE` stats are absent).
+- **wiki-ingest** — Migrated to the shared `check-sources.py`, which adds content-hash change detection: an edited clipping now resurfaces for re-ingest instead of being treated as done.
 - **wiki-lint** — Wikilinks inside code spans and fenced blocks are no longer reported as broken links. Obsidian renders these as literal text, so quoted example links and Dataview queries containing `[[...]]` were false positives.
 
 ---
