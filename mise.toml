@@ -18,3 +18,12 @@ _.python.venv = { path = ".venv", create = true }
 [tasks]
 check = "hk check --all"
 fix = "hk fix --all"
+
+# Pushing an annotated tag trips hk 1.49.0's pre-push hook: it feeds the pushed
+# ref into a merge-base computation, and a tag resolves to a tag object rather
+# than a commit — "Failed to find merge base: object is no commit object"
+# (src/git.rs:1480). HK=0 is hk's own opt-out, checked by the generated hook, and
+# is narrower than --no-verify, which would disable every hook including any
+# non-hk ones. Tags carry no new content anyway; the commit they point at was
+# already linted on its way in.
+push-tag = "HK=0 git push origin"

@@ -2,6 +2,10 @@
 node_modules/
 .venv/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Local settings
 .claude/
 .cursor/
