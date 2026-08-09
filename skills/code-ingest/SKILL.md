@@ -94,6 +94,7 @@ everything the graph already knows and writes it into fenced blocks:
 | frontmatter | — | `files.path`, `content_hash`, `language` |
 | Key Symbols | `<!-- BEGIN:symbols -->` | `nodes` |
 | Depends On | `<!-- BEGIN:depends -->` | outbound `calls` + `imports` edges |
+| Call Graph | `<!-- BEGIN:graph -->` | the same edges as a Mermaid diagram |
 | Used By | `<!-- BEGIN:usedby -->` | inbound `calls` edges |
 
 **Your job is the two prose slots**, `## Purpose` and `## Notes`, marked with
@@ -106,6 +107,13 @@ Write Purpose in 2–3 sentences: what the file is for and why it exists. Write
 Notes for what the graph *cannot* say — gotchas, contradictions, dead code, the
 comment that explains an upstream API quirk. Do not restate the symbol table in
 prose; it is already on the page and it is already correct.
+
+**Read the Call Graph before writing either.** It draws the same edges the
+Depends On table lists, and convergence is what a table hides and a diagram
+shows: four arrows landing on one node is a design fact you can see at a glance,
+where the table makes you count rows. Solid arrows stay in the file, dashed ones
+leave it. Past 40 edges the section says so and defers to the table rather than
+rendering a hairball. Mermaid renders natively in Obsidian and on GitHub.
 
 Same inputs produce byte-identical output, so a page diff after re-ingest shows
 real code movement rather than rephrasing.
