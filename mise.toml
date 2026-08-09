@@ -19,11 +19,24 @@ _.python.venv = { path = ".venv", create = true }
 check = "hk check --all"
 fix = "hk fix --all"
 
-# Pushing an annotated tag trips hk 1.49.0's pre-push hook: it feeds the pushed
-# ref into a merge-base computation, and a tag resolves to a tag object rather
-# than a commit — "Failed to find merge base: object is no commit object"
-# (src/git.rs:1480). HK=0 is hk's own opt-out, checked by the generated hook, and
-# is narrower than --no-verify, which would disable every hook including any
-# non-hk ones. Tags carry no new content anyway; the commit they point at was
-# already linted on its way in.
-push-tag = "HK=0 git push origin"
+# Release tags are LIGHTWEIGHT — `git tag v1.2.3`, never `git tag -a`.
+#
+# An annotated tag creates a tag object, and hk's pre-push hook passes each
+# pushed ref straight into a merge-base computation without peeling it first:
+#
+#   Failed to find merge base
+#   Caused by: object is no commit object; class=Invalid (3)
+#
+# Reproduced on hk 1.49.0 (src/git.rs:1480) and 1.54.0 (src/git.rs:1568), so
+# bumping hk does not help. jdx/hk has issues disabled, so there is nowhere to
+# report it upstream. hk PR #975 hardened the same function against a *missing*
+# merge base, but keys on NotFound; a tag object raises Invalid, which it misses.
+#
+# A lightweight tag points straight at the commit, so hk resolves it, diffs 0
+# files against origin/main and exits clean — the bug never fires and no HK=0 or
+# --no-verify escape is needed. Release metadata lives in CHANGELOG.md and the
+# GitHub release, so the annotation carries nothing we would otherwise lose.
+[tasks.release-tag]
+description = "Create and push a lightweight release tag"
+usage = 'arg "<version>" help="Tag to create, e.g. v1.4.0"'
+run = 'git tag "$usage_version" && git push origin "$usage_version"'
