@@ -59,6 +59,15 @@ SKIP_SUFFIXES = ("-template",)
 # --- code mode: default location of the codegraph index -----------------------
 DEFAULT_DB = ".codegraph/codegraph.db"
 
+# Never treat the wiki's own contents as a raw source. codegraph indexes whatever
+# is in the repo, and that now includes files this skill *generates* — notably
+# Wiki/code-areas.yml from seed-areas.py. Without this the pipeline feeds on its
+# own output: step 8 writes the area map, step 1 reports it as a new source, and
+# step 3 scaffolds a source page about it. Anything else that shouldn't be a page
+# (lockfiles, vendored trees) belongs in the repo's .gitignore, which codegraph
+# honors, or can be scoped away with --only.
+SKIP_PREFIXES = ("Wiki/",)
+
 
 def parse_frontmatter(path: Path) -> dict:
     """Return the YAML frontmatter of a markdown file as a dict (or {})."""
@@ -120,13 +129,18 @@ def raw_sources_files(vault: Path) -> list[tuple[str, str]]:
 
 
 def raw_sources_code(db_path: Path) -> list[tuple[str, str]]:
-    """(source_path, content_hash) for each file codegraph has indexed."""
+    """(source_path, content_hash) for each file codegraph has indexed, minus
+    this skill's own generated output (see SKIP_PREFIXES)."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         rows = conn.execute("SELECT path, content_hash FROM files ORDER BY path").fetchall()
     finally:
         conn.close()
-    return [(str(path), str(content_hash)) for path, content_hash in rows]
+    return [
+        (str(path), str(content_hash))
+        for path, content_hash in rows
+        if not str(path).startswith(SKIP_PREFIXES)
+    ]
 
 
 def classify(indexed: dict[str, str | None], raw: list[tuple[str, str]]):

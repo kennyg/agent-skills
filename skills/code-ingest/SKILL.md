@@ -39,7 +39,17 @@ Ask the checker what is new or changed since the last ingest:
 uv run <skill-dir>/scripts/check-sources.py "$REPO" --mode code
 ```
 
-`--mode code` reads the codegraph `files` table and compares each file's `content_hash` against the `source_hash` recorded on its `Wiki/sources/` page. It reports `new` (never ingested) and `changed` (refactored since ingest). Scope large repos: ingest `src/**` before tests and scripts; a full index may list 100+ files.
+`--mode code` reads the codegraph `files` table and compares each file's `content_hash` against the `source_hash` recorded on its `Wiki/sources/` page. It reports `new` (never ingested) and `changed` (refactored since ingest).
+
+`Wiki/` is excluded automatically. codegraph indexes whatever is in the repo, and after step 8 that includes `Wiki/code-areas.yml`, which this skill generates — without the exclusion the pipeline feeds on its own output.
+
+Everything else codegraph indexed is fair game, so **scope deliberately**. A full index may list 100+ files and will include lockfiles, fixtures, and generated code that deserve no page. Ingest `src/**` before tests and scripts, and pass the same globs to `scaffold-sources.py`:
+
+```bash
+uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**' --only 'vite.config.ts'
+```
+
+Files you deliberately skip stay in the checker's `new` list. That is correct — it is a standing reminder of what the wiki does not cover. Record the decision in `Wiki/log.md` so the next run doesn't re-litigate it.
 
 ### 2. Read each source, grounded in the graph
 
