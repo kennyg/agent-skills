@@ -36,13 +36,20 @@ resolves, still lands inside the file, still points at *something* — just no
 longer at what the sentence claims. Nothing else in the pipeline notices, and a
 confidently wrong line number is worse than none.
 
-So a citation is judged against the symbols named near it (same paragraph, plus
-the page's own title). If any of them sits at the cited line, the citation is
-corroborated; if every one points elsewhere, it is stale. Citations with no
-named symbol to check against are left alone — prose legitimately points at a
-statement or a comment, and this deliberately under-reports rather than crying
-wolf. Fenced code blocks are skipped: a citation in a snippet is illustration,
-not a claim.
+So a citation is judged against the identifiers named near it (same paragraph,
+plus the page's own title). If any sits at the cited line, the citation is
+corroborated; if every one points elsewhere, it is stale.
+
+Anchors resolve against the index first and the source text second. The index
+only knows definitions, so a call into a dependency —
+`term.attachCustomKeyEventHandler(...)` — is invisible to it and its citation
+would go unchecked; reading the file catches those too. Text matching is
+whole-word, so `Terminal` never matches `SpectreTerminalView`.
+
+Citations with no identifier to check against are still left alone — prose
+legitimately points at a bare statement or a comment, and this deliberately
+under-reports rather than crying wolf. Fenced code blocks are skipped: a
+citation in a snippet is illustration, not a claim.
 
 Exit codes make this usable as a gate:
     0   everything resolved
@@ -177,6 +184,50 @@ def prose_paragraphs(text: str):
         yield start, "\n".join(buf)
 
 
+class SourceText:
+    """Cached source files, for locating identifiers the index does not carry.
+
+    codegraph indexes definitions. A call into a dependency —
+    `term.attachCustomKeyEventHandler(...)` — creates no node and no edge (its
+    `unresolved_refs` table is empty), so an anchor naming one is invisible to
+    the graph and its citation goes unchecked.
+
+    Reading the file closes that gap: an identifier is anchored if it literally
+    appears on the cited line. This is weaker evidence than a definition — it
+    finds mentions, not declarations — so it is only consulted when the index
+    has nothing, keeping the crisp "`stopSession` is at 186" reporting for the
+    common case.
+    """
+
+    def __init__(self, repo: Path):
+        self.repo = repo
+        self._lines: dict[str, list[str] | None] = {}
+        self._found: dict[tuple[str, str], set[int]] = {}
+
+    def lines(self, path: str) -> list[str] | None:
+        if path not in self._lines:
+            try:
+                self._lines[path] = self.repo.joinpath(path).read_text(
+                    encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                self._lines[path] = None
+        return self._lines[path]
+
+    def occurrences(self, path: str, name: str) -> set[int]:
+        """Line numbers where `name` appears as a whole word."""
+        key = (path, name)
+        if key not in self._found:
+            lines = self.lines(path)
+            if lines is None:
+                self._found[key] = set()
+            else:
+                pattern = re.compile(rf"\b{re.escape(name)}\b")
+                self._found[key] = {
+                    i for i, line in enumerate(lines, 1) if pattern.search(line)
+                }
+        return self._found[key]
+
+
 def check_citations(repo: Path, indexed_files: set[str],
                     sym_lines: dict[tuple[str, str], set[int]]) -> list[dict]:
     """Flag `file:line` citations in prose that the index contradicts.
@@ -199,7 +250,7 @@ def check_citations(repo: Path, indexed_files: set[str],
     line would bury the real findings.
     """
     findings = []
-    line_counts: dict[str, int] = {}
+    source = SourceText(repo)
 
     for page in sorted(repo.joinpath("Wiki").rglob("*.md")):
         try:
@@ -224,17 +275,10 @@ def check_citations(repo: Path, indexed_files: set[str],
                                      "detail": "path is not in the codegraph index"})
                     continue
 
-                if path not in line_counts:
-                    try:
-                        line_counts[path] = len(
-                            repo.joinpath(path).read_text(encoding="utf-8").splitlines()
-                        )
-                    except (OSError, UnicodeDecodeError):
-                        line_counts[path] = -1
-                total = line_counts[path]
-                if total >= 0 and cited > total:
+                file_lines = source.lines(path)
+                if file_lines is not None and cited > len(file_lines):
                     findings.append({**base, "kind": "out-of-range",
-                                     "detail": f"file has {total} lines"})
+                                     "detail": f"file has {len(file_lines)} lines"})
                     continue
 
                 # A prose line often carries several citations and several
@@ -246,21 +290,41 @@ def check_citations(repo: Path, indexed_files: set[str],
                 # elsewhere is it stale. Erring toward silence is deliberate — a
                 # gate that cries wolf gets ignored, and this one has to survive
                 # every re-ingest.
-                candidates = {}
+                candidates, kinds = {}, {}
                 names = [(a or b).strip() for a, b in ANCHOR.findall(line)]
                 names.append(page_anchor)
                 for name in names:
+                    # Prefer the index: a definition line is stronger evidence
+                    # and reads better in the report. Fall back to the source
+                    # text for anchors the graph never saw — calls into
+                    # dependencies, which codegraph does not record at all.
                     actual = sym_lines.get((path, name))
+                    kind = "defined at"
+                    if not actual:
+                        actual = source.occurrences(path, name)
+                        kind = "appears at"
                     if actual:
                         candidates[name] = actual
+                        kinds[name] = kind
 
                 if candidates and not any(cited in v for v in candidates.values()):
-                    name, actual = min(candidates.items(),
-                                       key=lambda kv: min(abs(n - cited) for n in kv[1]))
+                    # Report the most informative anchor, not merely the nearest.
+                    # A definition outranks a text match at equal distance:
+                    # `import { Plugin }` on line 3 is a real occurrence of
+                    # "Plugin", but "`SpectrePlugin` defined at 211" is what
+                    # actually tells the reader where to look.
+                    name, actual = min(
+                        candidates.items(),
+                        key=lambda kv: (kinds[kv[0]] != "defined at",
+                                        min(abs(n - cited) for n in kv[1])),
+                    )
+                    shown = sorted(actual)[:5]
+                    where = ", ".join(str(n) for n in shown)
+                    if len(actual) > len(shown):
+                        where += f", … ({len(actual)} total)"
                     findings.append({
                         **base, "kind": "stale-anchor", "symbol": name,
-                        "detail": f"`{name}` is at "
-                                  f"{', '.join(str(n) for n in sorted(actual))}",
+                        "detail": f"`{name}` {kinds[name]} {where}",
                     })
     return findings
 

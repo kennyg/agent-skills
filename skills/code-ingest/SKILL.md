@@ -159,9 +159,11 @@ Three outcomes:
 - **no `realized_by` at all** — an ungrounded page, which the code wiki should
   not contain. Fails by default; `--allow-ungrounded` downgrades it to a report.
 
-Second, every `` `path/to/file.ext:123` `` citation in prose is checked against
-the index: unknown file, line past EOF, or **stale anchor** — a symbol named in
-the same paragraph that really exists in that file, at a different line.
+Second, every `` `path/to/file.ext:123` `` citation in prose is checked: unknown
+file, line past EOF, or **stale anchor** — an identifier named in the same
+paragraph that really exists in that file, at a different line. Anchors resolve
+against the index first and the source text second, so calls into dependencies
+(which codegraph does not record) are checked too.
 
 That last one is the reason this check exists. A rename breaks `realized_by`
 loudly, but inserting lines above a function shifts every citation below it
