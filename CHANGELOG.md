@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.5.0 (2026-08-09)
+
+Source pages now draw the call graph instead of only tabulating it.
+
+### code-ingest
+
+- **New generated `Call Graph` section** on every source page, rendering the file's outgoing calls as Mermaid from the same edges the `Depends On` table lists. Convergence is what a table hides and a diagram shows: four arrows landing on one node is a design fact you see at a glance, where the table makes you count rows.
+  - Solid arrows stay inside the file, dashed arrows leave it, so the file boundary reads without labels; the legend only prints when there are dashed arrows.
+  - Repeated call sites are labelled `Nx` rather than drawn as parallel edges — `buildThemeFromObsidian --> |21x| getCssVar`.
+  - Past 40 edges the section says so and defers to the table. A hairball is worse than no diagram, because it still looks informative.
+  - Node ids are sanitized, since Mermaid rejects punctuation. Two names can squash to the same id and would otherwise be **silently merged into one node**, asserting a call that does not exist; collisions take a numeric suffix and any mangled id carries a label with the real identifier.
+- Mermaid renders natively in Obsidian and on GitHub, adds no dependency, and is plain text — so it regenerates deterministically inside a `BEGIN`/`END` fence like every other section. Pages written before this release self-heal the new fence on the next run.
+
+---
+
 ## v1.4.0 (2026-08-09)
 
 Hardening pass on **code-ingest**, driven by re-ingesting a repo that had been renamed and refactored since its first ingest — the first time the skill ran against a wiki that already existed.
