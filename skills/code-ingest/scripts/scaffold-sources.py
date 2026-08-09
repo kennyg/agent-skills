@@ -58,6 +58,12 @@ import yaml
 
 DEFAULT_DB = ".codegraph/codegraph.db"
 
+# Never scaffold a page for the wiki's own contents. codegraph indexes whatever is
+# in the repo, including files this skill generates (Wiki/code-areas.yml from
+# seed-areas.py), so without this the pipeline consumes its own output. Keep in
+# sync with check-sources.py:SKIP_PREFIXES.
+SKIP_PREFIXES = ("Wiki/",)
+
 # Symbol kinds worth listing. `constant` is included deliberately: module-level
 # constants are frequently the real API surface (view types, ids, config keys),
 # and omitting them silently drops a file's most-referenced names. Keep in sync
@@ -95,9 +101,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def indexed_files(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
-    return conn.execute(
+    rows = conn.execute(
         "SELECT path, content_hash, language FROM files ORDER BY path"
     ).fetchall()
+    return [r for r in rows if not str(r[0]).startswith(SKIP_PREFIXES)]
 
 
 def symbols_for(conn: sqlite3.Connection, path: str) -> list[tuple]:
