@@ -78,7 +78,14 @@ KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3,
 # Fenced sections, and the heading each belongs under when a page needs repair.
 SECTIONS = {"symbols": "## Key Symbols",
             "depends": "## Depends On",
+            "graph": "## Call Graph",
             "usedby": "## Used By"}
+
+# Above this many edges a Mermaid graph stops being a diagram and becomes a
+# hairball — worse than the table it sits next to, because it looks informative.
+# Past the cap the section says so and defers to Depends On rather than
+# rendering something unreadable.
+MAX_GRAPH_EDGES = 40
 
 PROSE_PURPOSE = "_TODO — 2–3 sentences: what this file is for, and why it exists._"
 PROSE_NOTES = "_TODO — what the graph cannot say: gotchas, contradictions, dead code._"
@@ -252,6 +259,76 @@ def render_depends(calls: list[tuple], imports: list[str], path: str) -> str:
     return "\n\n".join(blocks) if blocks else "_No outbound edges indexed._"
 
 
+def mermaid_id(name: str, taken: dict[str, str]) -> str:
+    """A Mermaid-safe node id for `name`, stable across runs.
+
+    Mermaid ids cannot contain punctuation, so names are squashed to word
+    characters. Two different names can squash to the same id, which would
+    silently merge two nodes into one — a wrong diagram is worse than no
+    diagram — so collisions get a numeric suffix, assigned in the caller's
+    deterministic iteration order.
+    """
+    base = re.sub(r"\W", "_", name) or "n"
+    if base[0].isdigit():
+        base = "n" + base
+    if taken.get(base) in (None, name):
+        taken[base] = name
+        return base
+    i = 2
+    while taken.get(f"{base}_{i}") not in (None, name):
+        i += 1
+    taken[f"{base}_{i}"] = name
+    return f"{base}_{i}"
+
+
+def render_graph(calls: list[tuple], path: str) -> str:
+    """A Mermaid call graph for this file's outgoing calls.
+
+    The same edges as Depends On, drawn instead of tabulated. Convergence is the
+    thing a table hides and a diagram shows: four arrows landing on one node is
+    a fact about the design you can see at a glance, and counting rows to notice
+    it is exactly the manual work this skill exists to remove.
+
+    Solid arrows stay inside the file; dashed arrows leave it, so the file's
+    boundary is visible without reading any label. Repeated call sites are
+    labelled `Nx` rather than drawn as parallel edges.
+    """
+    if not calls:
+        return "_No outgoing calls indexed._"
+    if len(calls) > MAX_GRAPH_EDGES:
+        return (f"_Not rendered — {len(calls)} call edges exceeds the "
+                f"{MAX_GRAPH_EDGES}-edge limit for a legible diagram. "
+                f"See **Depends On** above._")
+
+    taken: dict[str, str] = {}
+    lines, external = ["```mermaid", "graph LR"], []
+
+    for caller, callee, cfile, sites in calls:
+        src = mermaid_id(caller, taken)
+        dst = mermaid_id(callee, taken)
+        arrow = "-->" if cfile == path else "-.->"
+        label = f"|{sites}x| " if sites > 1 else ""
+        lines.append(f"  {src} {arrow} {label}{dst}")
+        if cfile != path and dst not in external:
+            external.append(dst)
+
+    # Label any node whose id had to be mangled, so the diagram still shows the
+    # real identifier rather than its sanitized form.
+    for node_id, name in sorted(taken.items()):
+        if node_id != name:
+            lines.append(f'  {node_id}["{name}"]')
+
+    if external:
+        lines.append("  classDef ext stroke-dasharray: 3 3")
+        lines.append(f"  class {','.join(external)} ext")
+    lines.append("```")
+    # Only explain the notation that is actually on screen. A legend for dashed
+    # arrows on a graph with none is noise that makes the reader hunt for them.
+    if external:
+        lines += ["", "_Dashed arrows leave this file._"]
+    return "\n".join(lines)
+
+
 def render_usedby(rows: list[tuple]) -> str:
     if not rows:
         return "_No inbound calls indexed._ Either an entrypoint, or reached only dynamically."
@@ -324,7 +401,7 @@ def with_frontmatter(fm: dict, body: str) -> str:
     return f"---\n{front}\n---\n\n{body.lstrip()}"
 
 
-def new_body(path: str, symbols: str, depends: str, usedby: str) -> str:
+def new_body(path: str, symbols: str, depends: str, graph: str, usedby: str) -> str:
     def fenced(section: str, content: str) -> str:
         return f"<!-- BEGIN:{section} -->\n{content}\n<!-- END:{section} -->"
 
@@ -341,6 +418,10 @@ def new_body(path: str, symbols: str, depends: str, usedby: str) -> str:
 {SECTIONS["depends"]}
 
 {fenced("depends", depends)}
+
+{SECTIONS["graph"]}
+
+{fenced("graph", graph)}
 
 {SECTIONS["usedby"]}
 
@@ -416,8 +497,10 @@ def main() -> int:
         repaired: list[str] = []
 
         for path, content_hash, language in files:
+            calls = outbound_calls(conn, path)
             symbols = render_symbols(symbols_for(conn, path))
-            depends = render_depends(outbound_calls(conn, path), imports_for(conn, path), path)
+            depends = render_depends(calls, imports_for(conn, path), path)
+            graph = render_graph(calls, path)
             usedby = render_usedby(inbound_calls(conn, path))
 
             entry = pages.get(path)
@@ -426,6 +509,7 @@ def main() -> int:
                 fixed = []
                 for section, content in (("symbols", symbols),
                                          ("depends", depends),
+                                         ("graph", graph),
                                          ("usedby", usedby)):
                     body, was_repaired = splice(body, section, content)
                     if was_repaired:
@@ -437,7 +521,8 @@ def main() -> int:
                 updated += 1
             else:
                 fm = build_frontmatter({}, path, content_hash, language, today)
-                rendered = with_frontmatter(fm, new_body(path, symbols, depends, usedby))
+                rendered = with_frontmatter(
+                    fm, new_body(path, symbols, depends, graph, usedby))
                 target = out_dir / f"{slug_for(path)}.md"
                 action = "create"
                 created += 1
