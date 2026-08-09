@@ -149,8 +149,8 @@ Before rebuilding the index, prove every page is anchored in real code:
 uv run <skill-dir>/scripts/verify-grounding.py "$REPO"
 ```
 
-It resolves every `realized_by` entry against the index and exits non-zero if
-any fails. Three outcomes:
+Two checks run. First, every `realized_by` entry is resolved against the index.
+Three outcomes:
 
 - **missing** — the symbol is not in the index. Either invented, mistyped, or
   the code was renamed after ingest. Fix the page, or re-index and re-check.
@@ -158,6 +158,17 @@ any fails. Three outcomes:
   the extractor could not name, but prefer symbols. `--strict` makes it fail.
 - **no `realized_by` at all** — an ungrounded page, which the code wiki should
   not contain. Fails by default; `--allow-ungrounded` downgrades it to a report.
+
+Second, every `` `path/to/file.ext:123` `` citation in prose is checked against
+the index: unknown file, line past EOF, or **stale anchor** — a symbol named in
+the same paragraph that really exists in that file, at a different line.
+
+That last one is the reason this check exists. A rename breaks `realized_by`
+loudly, but inserting lines above a function shifts every citation below it
+silently: each still resolves, still lands in the file, just no longer at what
+the sentence says. Prefer naming the symbol over citing a line — `` `stopSession` ``
+survives a refactor that `src/main.ts:186` does not. `--no-line-refs` skips this
+check.
 
 Do not proceed to step 7 with a failing run. An unverified `realized_by` is
 worse than none: the **Symbols** column in `index.md` will report a count that
