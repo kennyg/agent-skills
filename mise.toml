@@ -19,6 +19,10 @@ _.python.venv = { path = ".venv", create = true }
 check = "hk check --all"
 fix = "hk fix --all"
 
+[tasks.skills-table]
+description = "Regenerate the README skills table from SKILL.md frontmatter"
+run = "scripts/gen-skills-table.sh"
+
 # Release tags are LIGHTWEIGHT — `git tag v1.2.3`, never `git tag -a`.
 #
 # An annotated tag creates a tag object, and hk's pre-push hook passes each

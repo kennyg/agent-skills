@@ -9,6 +9,17 @@ local linters = new Mapping<String, Step> {
     // TOML
     ["taplo"] = Builtins.taplo
 
+    // Docs — the README skills table is generated from SKILL.md frontmatter.
+    // It runs whenever a SKILL.md, the README or the generator changes; adding
+    // or renaming a skill without regenerating fails the hook instead of
+    // silently leaving the new skill unlisted, which is how code-ingest went
+    // two releases without a row.
+    ["skills-table"] = new Step {
+        glob = List("skills/*/SKILL.md", "README.md", "scripts/gen-skills-table.sh")
+        check = "scripts/gen-skills-table.sh --check"
+        fix = "scripts/gen-skills-table.sh"
+    }
+
     // Universal
     ["typos"] = Builtins.typos
     ["trailing-whitespace"] = Builtins.trailing_whitespace
