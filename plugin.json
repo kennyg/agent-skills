@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agent-skills",
+  "description": "A collection of portable skills for AI coding agents.",
+  "author": {
+    "name": "Kenny Gatdula",
+    "email": "kennyg@pobox.com",
+    "url": "https://github.com/kennyg"
+  },
+  "homepage": "https://github.com/kennyg/agent-skills",
+  "repository": "https://github.com/kennyg/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "copilot",
+    "cursor",
+    "opencode",
+    "developer-tools"
+  ]
+}
