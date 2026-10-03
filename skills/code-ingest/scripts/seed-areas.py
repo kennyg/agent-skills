@@ -45,8 +45,7 @@ DEFAULT_DB = ".codegraph/codegraph.db"
 ROOT = "<root>"
 # Keep in sync with scaffold-sources.py:SYMBOL_KINDS — otherwise code-areas.yml
 # and the source pages disagree about what counts as a symbol.
-KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3,
-             "method": 4, "constant": 5}
+KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3, "method": 4, "constant": 5}
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -55,10 +54,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 # --- routes -------------------------------------------------------------------
 
+
 def route_areas(conn: sqlite3.Connection, excludes: list[str]) -> list[dict] | None:
-    rows = conn.execute(
-        "SELECT name, file_path FROM nodes WHERE kind='route' ORDER BY name"
-    ).fetchall()
+    rows = conn.execute("SELECT name, file_path FROM nodes WHERE kind='route' ORDER BY name").fetchall()
     if not rows:
         return None
     groups: dict[str, dict] = {}
@@ -70,16 +68,19 @@ def route_areas(conn: sqlite3.Connection, excludes: list[str]) -> list[dict] | N
             g["files"].add(file_path)
     areas = []
     for segment, g in sorted(groups.items()):
-        areas.append({
-            "name": segment,
-            "kind": "route-group",
-            "routes": sorted(g["routes"]),
-            "files": sorted(g["files"]),
-        })
+        areas.append(
+            {
+                "name": segment,
+                "kind": "route-group",
+                "routes": sorted(g["routes"]),
+                "files": sorted(g["files"]),
+            }
+        )
     return areas
 
 
 # --- modules (fallback) -------------------------------------------------------
+
 
 def top_dir(path: str) -> str:
     return path.split("/", 1)[0] if "/" in path else ROOT
@@ -122,8 +123,7 @@ def excluded(path: str, patterns: list[str]) -> bool:
 
 
 def module_areas(conn: sqlite3.Connection, split_threshold: int, excludes: list[str]) -> list[dict]:
-    files = [r[0] for r in conn.execute("SELECT path FROM files").fetchall()
-             if not excluded(r[0], excludes)]
+    files = [r[0] for r in conn.execute("SELECT path FROM files").fetchall() if not excluded(r[0], excludes)]
 
     top_counts: dict[str, int] = defaultdict(int)
     top_has_subdirs: dict[str, bool] = defaultdict(bool)
@@ -132,10 +132,7 @@ def module_areas(conn: sqlite3.Connection, split_threshold: int, excludes: list[
         top_counts[top] += 1
         if path.count("/") >= 2:
             top_has_subdirs[top] = True
-    split_tops = {
-        t for t, n in top_counts.items()
-        if n > split_threshold and top_has_subdirs[t]
-    }
+    split_tops = {t for t, n in top_counts.items() if n > split_threshold and top_has_subdirs[t]}
 
     buckets: dict[str, list[str]] = defaultdict(list)
     for path in files:
@@ -144,21 +141,26 @@ def module_areas(conn: sqlite3.Connection, split_threshold: int, excludes: list[
     areas = []
     for key in sorted(buckets):
         members = sorted(buckets[key])
-        langs = sorted({
-            r[0] for r in conn.execute(
-                f"SELECT DISTINCT language FROM files WHERE path IN ({','.join('?' for _ in members)})",
-                members,
-            ).fetchall()
-        })
+        langs = sorted(
+            {
+                r[0]
+                for r in conn.execute(
+                    f"SELECT DISTINCT language FROM files WHERE path IN ({','.join('?' for _ in members)})",
+                    members,
+                ).fetchall()
+            }
+        )
         name = ROOT.strip("<>") if key == ROOT else key.split("/")[-1]
-        areas.append({
-            "name": name,
-            "kind": "module",
-            "path": "." if key == ROOT else key,
-            "files": len(members),
-            "languages": langs,
-            "key_symbols": key_symbols(conn, members),
-        })
+        areas.append(
+            {
+                "name": name,
+                "kind": "module",
+                "path": "." if key == ROOT else key,
+                "files": len(members),
+                "languages": langs,
+                "key_symbols": key_symbols(conn, members),
+            }
+        )
     return areas
 
 
@@ -170,21 +172,27 @@ def render(source: str, areas: list[dict]) -> str:
     )
     body = yaml.safe_dump(
         {"source": source, "generated_from": "codegraph", "areas": areas},
-        sort_keys=False, allow_unicode=True, default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
     )
     return header + body
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo", nargs="?", default=".")
-    parser.add_argument("--db", help="codegraph db path (default <repo>/%s)" % DEFAULT_DB)
-    parser.add_argument("--split-threshold", type=int, default=15,
-                        help="split a top-level dir into submodules past this many files")
-    parser.add_argument("--exclude", action="append", default=[], metavar="GLOB",
-                        help="drop files matching this glob (repeatable), e.g. --exclude '__tests__/*'")
+    parser.add_argument("--db", help=f"codegraph db path (default <repo>/{DEFAULT_DB})")
+    parser.add_argument(
+        "--split-threshold", type=int, default=15, help="split a top-level dir into submodules past this many files"
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="drop files matching this glob (repeatable), e.g. --exclude '__tests__/*'",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print instead of writing")
     args = parser.parse_args()
 

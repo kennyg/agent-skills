@@ -11,6 +11,8 @@ typos = "latest"
 # Python
 uv = "latest"
 python = "3.13"
+# Pinned: a ruff release can change formatting, which would fail `hk check` on a clean tree.
+ruff = "0.16.7"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
@@ -18,6 +20,16 @@ _.python.venv = { path = ".venv", create = true }
 [tasks]
 check = "hk check --all"
 fix = "hk fix --all"
+
+[tasks.test-skills]
+description = "Run the unittest suite in each skills/*/tests folder"
+run = """
+set -e
+for dir in skills/*/tests; do
+  [ -d "$dir" ] || continue
+  python3 -m unittest discover -s "$dir" -v
+done
+"""
 
 [tasks.skills-table]
 description = "Regenerate the README skills table from SKILL.md frontmatter"

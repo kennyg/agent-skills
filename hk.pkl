@@ -9,6 +9,29 @@ local linters = new Mapping<String, Step> {
     // TOML
     ["taplo"] = Builtins.taplo
 
+    // Python — skill scripts. Settings live in ruff.toml.
+    ["ruff"] = (Builtins.ruff) {
+        glob = List("skills/**/*.py")
+    }
+    ["ruff_format"] = (Builtins.ruff_format) {
+        glob = List("skills/**/*.py")
+    }
+
+    // Skill script rules, written up in CONTRIBUTING.md. Each check is a small
+    // script under scripts/ that prints the files breaking its rule.
+    //   script-header — uv `--script` shebang, PEP 723 block, executable bit.
+    //   script-paths  — no machine-specific paths (/Users/, /home/, ~/, Mobile Documents).
+    // A module whose name starts with an underscore is a helper, not a command,
+    // and is exempt from the header rule.
+    ["script-header"] = new Step {
+        glob = List("skills/*/scripts/*.py")
+        check = "scripts/check-script-header.sh {{files}}"
+    }
+    ["script-paths"] = new Step {
+        glob = List("skills/*/scripts/*.py")
+        check = "scripts/check-script-paths.sh {{files}}"
+    }
+
     // Docs — the README skills table is generated from SKILL.md frontmatter.
     // It runs whenever a SKILL.md, the README or the generator changes; adding
     // or renaming a skill without regenerating fails the hook instead of
