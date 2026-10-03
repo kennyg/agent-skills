@@ -34,7 +34,7 @@ provision script.
 Installs the firstmate toolchain — herdr, treehouse, no-mistakes — using each
 tool's **native vendor installer, targeting `/usr/local/bin`**. That dir is on
 the default PATH, including the non-interactive, non-login shell a plain
-`ssh <host> 'herdr ...'` gets (where `~/.local/bin` and mise's shims are *not*),
+`ssh <host> 'herdr ...'` gets (where `$HOME/.local/bin` and mise's shims are *not*),
 so the tools resolve over the exact SSH path herdr's backend uses. mise is still
 installed (for tools like node) and kept as a per-tool **fallback** if a vendor
 installer fails. Idempotent. Captain runs it (installs software):
@@ -54,20 +54,20 @@ provisioning:
 - **Version choice (`FM_SRC`):** default clones **upstream** (misses any
   local-only commits — fine, since local-only bits like the vault curator stay
   home). For a byte-exact mirror of your machine, ship a bundle:
-  `git -C <firstmate> bundle create ~/firstmate.bundle main`, scp it, run with
-  `FM_SRC=~/firstmate.bundle`.
+  `git -C <firstmate> bundle create firstmate.bundle main`, scp it to the host's `$HOME`, run with
+  `FM_SRC="$HOME/firstmate.bundle"`.
 
 ## Phase 5 — Boot the first mate (persistent + autonomous)
 Run the first mate **inside the host's herdr** (not a bare SSH pane) so she
 survives SSH/network drops. Prereqs: the harness is installed AND logged in
 (`/login` is interactive — the **captain** does it; it authenticates the host's
-`~/.claude` globally, so any claude session there inherits it).
+`$HOME/.claude` globally, so any claude session there inherits it).
 
 Orchestrate the host's herdr over SSH (`<P>` = the pane id printed by create):
 ```sh
 ssh <host> 'export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH";
   herdr workspace create --label firstmate --cwd "$HOME/firstmate" --no-focus'   # note the pane id
-ssh <host> 'herdr pane run <P> "  cd ~/firstmate && claude --dangerously-skip-permissions"'
+ssh <host> 'herdr pane run <P> "  cd $HOME/firstmate && claude --dangerously-skip-permissions"'
 ```
 Then handle the interactive bits by reading the pane (`herdr pane read <P>`) and
 sending keys (`herdr pane send-keys <P> ...`):

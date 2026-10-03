@@ -10,12 +10,13 @@
 #   FM_SRC   firstmate clone source (default: upstream origin URL below).
 #            - a git URL clones UPSTREAM (misses any local-only commits).
 #            - a path to a .bundle clones YOUR EXACT local main. Create it on
-#              the Mac with:  git -C <firstmate> bundle create ~/firstmate.bundle main
-#              scp it over, then run with FM_SRC=~/firstmate.bundle
-#   FM_DIR   where firstmate lands (default: ~/firstmate)
+#              the Mac with:  git -C <firstmate> bundle create firstmate.bundle main
+#              scp it to the host's $HOME, then run with FM_SRC=$HOME/firstmate.bundle
+#   FM_DIR   where firstmate lands (default: $HOME/firstmate)
 set -u
 
 FM_SRC="${FM_SRC:-https://github.com/kunchenguid/firstmate.git}"
+HERDR_LOG="${HERDR_LOG:-$HOME/.herdr-server.log}"
 FM_DIR="${FM_DIR:-$HOME/firstmate}"
 
 log() { printf '\n== %s ==\n' "$1"; }
@@ -45,16 +46,16 @@ if server_running; then
 else
 	printf '  starting headless herdr server ...\n'
 	# setsid + detached stdio so the server survives this SSH session closing
-	setsid herdr server >"$HOME/.herdr-server.log" 2>&1 </dev/null &
+	setsid herdr server >"$HERDR_LOG" 2>&1 </dev/null &
 	for _ in $(seq 1 15); do
 		server_running && break
 		sleep 1
 	done
 	if server_running; then
-		ok "herdr server is up (log: ~/.herdr-server.log)"
+		ok "herdr server is up (log: $HERDR_LOG)"
 	else
-		err "herdr server did not come up — see ~/.herdr-server.log"
-		tail -15 "$HOME/.herdr-server.log" 2>/dev/null | sed 's/^/    /'
+		err "herdr server did not come up — see $HERDR_LOG"
+		tail -15 "$HERDR_LOG" 2>/dev/null | sed 's/^/    /'
 		rc=1
 	fi
 fi
