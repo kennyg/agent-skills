@@ -1,0 +1,9 @@
+# Ruff settings for skill scripts. hk runs `ruff` and `ruff_format` on them.
+line-length = 120
+target-version = "py311"
+
+[lint]
+# An explicit list, so a new ruff release cannot add rules by changing its defaults.
+# E4, E7, E9 and F are ruff's classic defaults. I sorts imports, UP upgrades
+# syntax, and B catches likely bugs.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]

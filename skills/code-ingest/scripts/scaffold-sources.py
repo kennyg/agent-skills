@@ -72,14 +72,10 @@ SYMBOL_KINDS = ("class", "interface", "type_alias", "function", "method", "const
 
 # Ordering for the symbol table: declaration order within a file is the most
 # readable grouping, so this only breaks ties for same-line rows.
-KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3,
-             "method": 4, "constant": 5}
+KIND_RANK = {"class": 0, "interface": 1, "type_alias": 2, "function": 3, "method": 4, "constant": 5}
 
 # Fenced sections, and the heading each belongs under when a page needs repair.
-SECTIONS = {"symbols": "## Key Symbols",
-            "depends": "## Depends On",
-            "graph": "## Call Graph",
-            "usedby": "## Used By"}
+SECTIONS = {"symbols": "## Key Symbols", "depends": "## Depends On", "graph": "## Call Graph", "usedby": "## Used By"}
 
 # Above this many edges a Mermaid graph stops being a diagram and becomes a
 # hairball — worse than the table it sits next to, because it looks informative.
@@ -103,14 +99,13 @@ PROSE_NOTES = "_TODO — what the graph cannot say: gotchas, contradictions, dea
 # the bad index costs ~10% when stats exist and removes a 227x cliff when they
 # don't.
 
+
 def connect(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
 
 def indexed_files(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
-    rows = conn.execute(
-        "SELECT path, content_hash, language FROM files ORDER BY path"
-    ).fetchall()
+    rows = conn.execute("SELECT path, content_hash, language FROM files ORDER BY path").fetchall()
     return [r for r in rows if not str(r[0]).startswith(SKIP_PREFIXES)]
 
 
@@ -122,8 +117,7 @@ def symbols_for(conn: sqlite3.Connection, path: str) -> list[tuple]:
              WHERE file_path = ? AND kind IN ({placeholders})""",
         (path, *SYMBOL_KINDS),
     ).fetchall()
-    rows.sort(key=lambda r: (r[3] if r[3] is not None else 0,
-                             KIND_RANK.get(r[0], 9), r[1]))
+    rows.sort(key=lambda r: (r[3] if r[3] is not None else 0, KIND_RANK.get(r[0], 9), r[1]))
     return rows
 
 
@@ -162,18 +156,21 @@ def inbound_calls(conn: sqlite3.Connection, path: str) -> list[tuple]:
 
 def imports_for(conn: sqlite3.Connection, path: str) -> list[str]:
     return [
-        name for (name,) in conn.execute(
+        name
+        for (name,) in conn.execute(
             """SELECT DISTINCT t.name FROM edges e
                  JOIN nodes s ON e.source = s.id
                  JOIN nodes t ON e.target = t.id
                 WHERE +e.kind = 'imports' AND s.file_path = ?
                 ORDER BY t.name""",
             (path,),
-        ) if name
+        )
+        if name
     ]
 
 
 # --- rendering ----------------------------------------------------------------
+
 
 def slug_for(path: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
@@ -191,8 +188,7 @@ def cell(value) -> str:
 def table(header: list[str], rows: list[list[str]]) -> str:
     """Markdown table. Mirrors rebuild-index.py:table, minus the empty placeholder —
     callers here supply their own, more specific empty-state prose."""
-    lines = ["| " + " | ".join(header) + " |",
-             "|" + "|".join("---" for _ in header) + "|"]
+    lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     for row in rows:
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
@@ -225,8 +221,7 @@ def render_symbols(rows: list[tuple]) -> str:
         )
     return table(
         ["Kind", "Symbol", "Signature", "Line"],
-        [[cell(kind), f"`{cell(name)}`", f"`{sig(signature)}`", cell(line)]
-         for kind, name, signature, line in rows],
+        [[cell(kind), f"`{cell(name)}`", f"`{sig(signature)}`", cell(line)] for kind, name, signature, line in rows],
     )
 
 
@@ -236,18 +231,25 @@ def render_depends(calls: list[tuple], imports: list[str], path: str) -> str:
     internal = [c for c in calls if c[2] == path]
 
     if external:
-        blocks.append("**Calls into other files**\n\n" + table(
-            ["Caller", "Callee", "Defined in", "Sites"],
-            [[f"`{cell(caller)}`", f"`{cell(callee)}`", cell(cfile), cell(sites)]
-             for caller, callee, cfile, sites in external],
-        ))
+        blocks.append(
+            "**Calls into other files**\n\n"
+            + table(
+                ["Caller", "Callee", "Defined in", "Sites"],
+                [
+                    [f"`{cell(caller)}`", f"`{cell(callee)}`", cell(cfile), cell(sites)]
+                    for caller, callee, cfile, sites in external
+                ],
+            )
+        )
 
     if internal:
-        blocks.append("**Internal calls**\n\n" + table(
-            ["Caller", "Callee", "Sites"],
-            [[f"`{cell(caller)}`", f"`{cell(callee)}`", cell(sites)]
-             for caller, callee, _cfile, sites in internal],
-        ))
+        blocks.append(
+            "**Internal calls**\n\n"
+            + table(
+                ["Caller", "Callee", "Sites"],
+                [[f"`{cell(caller)}`", f"`{cell(callee)}`", cell(sites)] for caller, callee, _cfile, sites in internal],
+            )
+        )
 
     if imports:
         blocks.append("**Imports** — " + ", ".join(f"`{cell(m)}`" for m in imports))
@@ -296,9 +298,11 @@ def render_graph(calls: list[tuple], path: str) -> str:
     if not calls:
         return "_No outgoing calls indexed._"
     if len(calls) > MAX_GRAPH_EDGES:
-        return (f"_Not rendered — {len(calls)} call edges exceeds the "
-                f"{MAX_GRAPH_EDGES}-edge limit for a legible diagram. "
-                f"See **Depends On** above._")
+        return (
+            f"_Not rendered — {len(calls)} call edges exceeds the "
+            f"{MAX_GRAPH_EDGES}-edge limit for a legible diagram. "
+            f"See **Depends On** above._"
+        )
 
     taken: dict[str, str] = {}
     lines, external = ["```mermaid", "graph LR"], []
@@ -334,12 +338,12 @@ def render_usedby(rows: list[tuple]) -> str:
         return "_No inbound calls indexed._ Either an entrypoint, or reached only dynamically."
     return table(
         ["Caller", "Defined in", "Calls", "Sites"],
-        [[f"`{cell(caller)}`", cell(cfile), f"`{cell(callee)}`", cell(sites)]
-         for caller, cfile, callee, sites in rows],
+        [[f"`{cell(caller)}`", cell(cfile), f"`{cell(callee)}`", cell(sites)] for caller, cfile, callee, sites in rows],
     )
 
 
 # --- page assembly ------------------------------------------------------------
+
 
 def splice(text: str, section: str, body: str) -> tuple[str, bool]:
     """Replace the fenced block for `section`. Returns (text, repaired).
@@ -372,8 +376,7 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return (data if isinstance(data, dict) else {}), parts[2].lstrip("\n")
 
 
-def build_frontmatter(existing: dict, path: str, content_hash: str,
-                      language: str, today: str) -> dict:
+def build_frontmatter(existing: dict, path: str, content_hash: str, language: str, today: str) -> dict:
     """Refresh the keys this script owns, preserving every other key on the page.
 
     `dict(existing)` first, then overwrite: title, area tags, and any field added
@@ -439,6 +442,7 @@ def new_body(path: str, symbols: str, depends: str, graph: str, usedby: str) -> 
 
 # --- main ---------------------------------------------------------------------
 
+
 def existing_pages(repo: Path) -> dict[str, tuple[Path, dict, str]]:
     """Map source_path -> (page, frontmatter, body).
 
@@ -463,13 +467,12 @@ def existing_pages(repo: Path) -> dict[str, tuple[Path, dict, str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo", nargs="?", default=".")
-    parser.add_argument("--db", help="codegraph db path (default <repo>/%s)" % DEFAULT_DB)
-    parser.add_argument("--only", action="append", default=[],
-                        help="glob to restrict which indexed files are scaffolded (repeatable)")
+    parser.add_argument("--db", help=f"codegraph db path (default <repo>/{DEFAULT_DB})")
+    parser.add_argument(
+        "--only", action="append", default=[], help="glob to restrict which indexed files are scaffolded (repeatable)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="report without writing")
     parser.add_argument("--today", help="override the date stamp (for reproducible runs)")
     args = parser.parse_args()
@@ -507,10 +510,12 @@ def main() -> int:
             if entry:
                 page, old_fm, body = entry
                 fixed = []
-                for section, content in (("symbols", symbols),
-                                         ("depends", depends),
-                                         ("graph", graph),
-                                         ("usedby", usedby)):
+                for section, content in (
+                    ("symbols", symbols),
+                    ("depends", depends),
+                    ("graph", graph),
+                    ("usedby", usedby),
+                ):
                     body, was_repaired = splice(body, section, content)
                     if was_repaired:
                         fixed.append(section)
@@ -521,8 +526,7 @@ def main() -> int:
                 updated += 1
             else:
                 fm = build_frontmatter({}, path, content_hash, language, today)
-                rendered = with_frontmatter(
-                    fm, new_body(path, symbols, depends, graph, usedby))
+                rendered = with_frontmatter(fm, new_body(path, symbols, depends, graph, usedby))
                 target = out_dir / f"{slug_for(path)}.md"
                 action = "create"
                 created += 1
@@ -543,8 +547,7 @@ def main() -> int:
             print(f"  ~ {r}")
 
     if not args.dry_run and (created or updated):
-        print("\nNext: fill the Purpose/Notes prose, then run verify-grounding.py "
-              "and rebuild-index.py.")
+        print("\nNext: fill the Purpose/Notes prose, then run verify-grounding.py and rebuild-index.py.")
     return 0
 
 

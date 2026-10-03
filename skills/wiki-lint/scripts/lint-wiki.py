@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
+# dependencies = []
 # ///
 """Health check for an LLM wiki in an Obsidian vault.
 
-Usage: uv run lint-wiki.py [vault-path]
+Usage: lint-wiki.py [vault-path]
 """
 
 import json
 import re
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -90,7 +90,7 @@ def main():
     # --- Broken wikilinks ---
     link_counts: Counter = Counter()
     broken: set[str] = set()
-    for target, source in links:
+    for target, _source in links:
         # Resolve: wiki page? vault file? basename? (also strip .md suffix)
         if target in pages:
             continue
