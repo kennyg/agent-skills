@@ -3,215 +3,77 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6"]
 # ///
-"""
-check-sources.py — find raw sources that are new or changed since last ingest.
+"""List raw sources that need ingest: never ingested, or edited since ingest.
 
-One checker, two modes, one comparison rule. Both skills answer the same
-question — "what still needs ingesting?" — so they share the same logic and
-differ only in where the raw sources and their hashes come from:
+Each raw file in `Clippings/` and `Twitter-Captures/` is matched to a page in
+`Wiki/sources/` by `source_path`. A file with no page is `new`. A file whose
+SHA-256 differs from the page's `source_hash` is `changed`. The queue lists
+each path with its SHA-256, so the hash goes straight into the source page.
 
-    --mode files   raw markdown in Clippings/ etc.; hash = sha256 of the file
-    --mode code    files indexed by codegraph; hash = the DB's content_hash
-
-The comparison itself is mode-agnostic. Every Wiki/sources/<page>.md records
-the source it was built from and the hash of that source at ingest time:
-
-    source_path: "src/foo/bar.ts"
-    source_hash: "a1b2c3..."
-
-We enumerate the current raw sources, look each one up by source_path, and
-bucket it:
-
-    new       — no Wiki/sources page references this source_path
-    changed   — a page references it, but the hash no longer matches
-    unchanged — page exists and hash matches
-
-Change detection is why this replaces the old existence-only checker: a
-clipping that was edited, or a code file that was refactored, now surfaces
-for re-ingest instead of silently going stale.
+`Twitter-Captures/README.md`, `Twitter-Captures/bookmarks.md`, `_index.md` and
+`templates/` are not sources. This script is read-only.
 
 Usage:
-    uv run check-sources.py <vault> --mode files
-    uv run check-sources.py <repo>  --mode code
-    uv run check-sources.py <repo>  --mode code --json
-    uv run check-sources.py <repo>  --mode code --db /path/to/codegraph.db
-
---json emits the shape rebuild-index.py --unprocessed consumes:
-    {"new": [{"source": ...}], "changed": [{"source": ..., "reason": ...}]}
+    check-sources.py [--vault DIR] [--json] [--exit-code]
 """
 
 from __future__ import annotations
 
-import argparse
-import hashlib
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
-import yaml
-
-# --- files mode: where raw clippings live, and what to ignore -----------------
-RAW_DIRS = ["Clippings", "Twitter-Captures/tools", "Twitter-Captures/articles"]
-SKIP_NAMES = {"_index", "README", "bookmarks"}
-SKIP_SUFFIXES = ("-template",)
-
-# --- code mode: default location of the codegraph index -----------------------
-DEFAULT_DB = ".codegraph/codegraph.db"
-
-# Never treat the wiki's own contents as a raw source. codegraph indexes whatever
-# is in the repo, and that now includes files this skill *generates* — notably
-# Wiki/code-areas.yml from seed-areas.py. Without this the pipeline feeds on its
-# own output: step 8 writes the area map, step 1 reports it as a new source, and
-# step 3 scaffolds a source page about it. Anything else that shouldn't be a page
-# (lockfiles, vendored trees) belongs in the repo's .gitignore, which codegraph
-# honors, or can be scoped away with --only.
-SKIP_PREFIXES = ("Wiki/",)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _wikilib as wl  # noqa: E402
 
 
-def parse_frontmatter(path: Path) -> dict:
-    """Return the YAML frontmatter of a markdown file as a dict (or {})."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return {}
-    if not text.startswith("---"):
-        return {}
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return {}
-    try:
-        data = yaml.safe_load(parts[1])
-    except yaml.YAMLError:
-        return {}
-    return data if isinstance(data, dict) else {}
+def git_footer(vault: Path) -> str | None:
+    """Count uncommitted files and unpushed commits, or None outside a git repo."""
+    status = wl.git(vault, "status", "--porcelain")
+    if status.returncode != 0:
+        return None
+    dirty = len([line for line in status.stdout.splitlines() if line.strip()])
+    ahead = wl.git(vault, "rev-list", "--count", "@{upstream}..HEAD")
+    pushed = ahead.stdout.strip() if ahead.returncode == 0 else "0"
+    return f"uncommitted files: {dirty}   commits not pushed: {pushed}"
 
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def indexed_sources(vault: Path) -> dict[str, str | None]:
-    """Map source_path -> recorded source_hash for every Wiki/sources page.
-
-    A page that predates hashing (no source_hash) maps to None, which the
-    caller reports as changed with a distinct reason so a one-time backfill
-    is visible rather than mistaken for real drift.
-    """
-    directory = vault / "Wiki" / "sources"
-    out: dict[str, str | None] = {}
-    if not directory.is_dir():
-        return out
-    for page in directory.glob("*.md"):
-        fm = parse_frontmatter(page)
-        src = fm.get("source_path")
-        if src:
-            out[str(src)] = fm.get("source_hash")
-    return out
-
-
-def raw_sources_files(vault: Path) -> list[tuple[str, str]]:
-    """(source_path, hash) for each raw clipping, source_path vault-relative."""
-    out = []
-    for d in RAW_DIRS:
-        directory = vault / d
-        if not directory.is_dir():
-            continue
-        for f in sorted(directory.glob("*.md")):
-            if f.stem in SKIP_NAMES or f.stem.endswith(SKIP_SUFFIXES):
-                continue
-            out.append((str(f.relative_to(vault)), sha256_file(f)))
-    return out
-
-
-def raw_sources_code(db_path: Path) -> list[tuple[str, str]]:
-    """(source_path, content_hash) for each file codegraph has indexed, minus
-    this skill's own generated output (see SKIP_PREFIXES)."""
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        rows = conn.execute("SELECT path, content_hash FROM files ORDER BY path").fetchall()
-    finally:
-        conn.close()
-    return [(str(path), str(content_hash)) for path, content_hash in rows if not str(path).startswith(SKIP_PREFIXES)]
-
-
-def classify(indexed: dict[str, str | None], raw: list[tuple[str, str]]):
-    new, changed, unchanged = [], [], []
-    for source_path, current in raw:
-        if source_path not in indexed:
-            new.append(source_path)
-            continue
-        recorded = indexed[source_path]
-        if recorded is None:
-            changed.append((source_path, "no source_hash recorded (needs backfill)"))
-        elif recorded != current:
-            changed.append((source_path, "content hash changed since ingest"))
-        else:
-            unchanged.append(source_path)
-    return new, changed, unchanged
+def inbox_count(vault: Path) -> int:
+    inbox = vault / "Inbox"
+    return sum(1 for _ in inbox.rglob("*.md")) if inbox.is_dir() else 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("vault", nargs="?", default=".")
-    parser.add_argument("--mode", choices=["files", "code"], default="files")
-    parser.add_argument("--db", help=f"codegraph db path (code mode; default <vault>/{DEFAULT_DB})")
-    parser.add_argument("--json", action="store_true", help="machine-readable output")
-    args = parser.parse_args()
+    parser = wl.make_parser(__doc__)
+    parser.add_argument("--json", action="store_true", help="print the queue as JSON")
+    parser.add_argument("--exit-code", action="store_true", help="exit 1 when the queue is not empty")
+    args, vault = wl.parse(parser)
 
-    vault = Path(args.vault).expanduser().resolve()
-
-    if args.mode == "code":
-        # Wiki/ is this mode's *output*, not its input — a repo being ingested for
-        # the first time has none, and demanding one makes the bootstrap run
-        # impossible. The codegraph index is the real precondition; indexed_sources()
-        # already returns {} for a missing Wiki/, which correctly reports everything
-        # as new. Only files mode uses Wiki/ as a "is this really a vault?" sniff.
-        db_path = Path(args.db).expanduser().resolve() if args.db else vault / DEFAULT_DB
-        if not db_path.exists():
-            print(f"error: codegraph index not found at {db_path}", file=sys.stderr)
-            print(f"       run `codegraph init --index {vault}` first, or pass --db", file=sys.stderr)
-            return 2
-        raw = raw_sources_code(db_path)
-    else:
-        if not (vault / "Wiki").is_dir():
-            print(f"error: {vault / 'Wiki'} not found — is this a wiki root?", file=sys.stderr)
-            return 2
-        raw = raw_sources_files(vault)
-
-    new, changed, unchanged = classify(indexed_sources(vault), raw)
+    result = wl.classify(vault)
+    new, changed = result["new"], result["changed"]
+    inbox = inbox_count(vault)
+    status = 1 if args.exit_code and (new or changed) else 0
 
     if args.json:
         payload = {
-            "mode": args.mode,
-            "new": [{"source": s} for s in new],
-            "changed": [{"source": s, "reason": r} for s, r in changed],
-            "unchanged_count": len(unchanged),
+            "new": new,
+            "changed": changed,
+            "unchanged_count": result["unchanged_count"],
+            "inbox_notes": inbox,
         }
         print(json.dumps(payload, indent=2))
-        return 0
+        return status
 
-    total = len(raw)
-    if not new and not changed:
-        print(f"Up to date — all {total} {args.mode} source(s) ingested and unchanged.")
-        return 0
-
-    print(f"=== {len(new)} new, {len(changed)} changed ({total} total, {len(unchanged)} unchanged) ===\n")
-    if new:
-        print("New:")
-        for s in new:
-            print(f"  + {s}")
-    if changed:
-        if new:
-            print()
-        print("Changed:")
-        for s, r in changed:
-            print(f"  ~ {s}  ({r})")
-    return 0
+    for item in new:
+        print(f"new:      {item['source']}  {item['sha256']}")
+    for item in changed:
+        print(f"changed:  {item['source']}  {item['sha256']}  ->  {item['page']}  ({item['reason']})")
+    print("---")
+    print(f"new sources: {len(new)}   changed sources: {len(changed)}   Inbox notes: {inbox}")
+    footer = git_footer(vault)
+    if footer:
+        print(footer)
+    return status
 
 
 if __name__ == "__main__":
