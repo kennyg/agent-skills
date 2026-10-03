@@ -25,6 +25,7 @@ Skills are reusable extensions that give AI coding agents specialized capabiliti
 | [github-gist](skills/github-gist/) | Create GitHub gists quickly from files, code snippets, or text content |
 | [going-ashore](skills/going-ashore/) | Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr ("going ashore") |
 | [hk-setup](skills/hk-setup/) | Set up hk (git hook manager) with pre-commit hooks for any project |
+| [idea-capture](skills/idea-capture/) | Capture an idea into an Obsidian vault as one note in Ideas/ plus a backlog line in Inbox/Tasks.md |
 | [jenkins-migrate](skills/jenkins-migrate/) | Convert Jenkins pipelines (Jenkinsfiles) to GitHub Actions workflows |
 | [mise-setup](skills/mise-setup/) | Set up mise (dev tool version manager) for any project |
 | [openspec-to-gherkin](skills/openspec-to-gherkin/) | Generate Cucumber/Gherkin feature files from OpenSpec delta specifications |

@@ -1,0 +1,39 @@
+filters:
+  and:
+    - 'file.inFolder("Ideas")'
+    - 'type == "idea"'
+properties:
+  status:
+    displayName: Status
+  date_captured:
+    displayName: Captured
+  source:
+    displayName: Source
+views:
+  - type: table
+    name: Backlog
+    groupBy:
+      property: status
+      direction: ASC
+    order:
+      - file.name
+      - date_captured
+      - source
+      - tags
+    sort:
+      - property: date_captured
+        direction: DESC
+  - type: table
+    name: Open
+    filters:
+      or:
+        - 'status == "captured"'
+        - 'status == "exploring"'
+    order:
+      - file.name
+      - status
+      - date_captured
+      - tags
+    sort:
+      - property: date_captured
+        direction: DESC
