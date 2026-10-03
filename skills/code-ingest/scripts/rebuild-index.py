@@ -115,8 +115,7 @@ def collect(vault: Path, folder: str) -> list[tuple[Path, dict]]:
 def table(header: list[str], rows: list[list[str]]) -> str:
     if not rows:
         return "_None yet._"
-    lines = ["| " + " | ".join(header) + " |",
-             "|" + "|".join("---" for _ in header) + "|"]
+    lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     for row in rows:
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
@@ -125,12 +124,14 @@ def table(header: list[str], rows: list[list[str]]) -> str:
 def build_sources(vault: Path) -> str:
     rows = []
     for page, fm in collect(vault, "sources"):
-        rows.append([
-            link(page),
-            cell(first(fm, "source_kind") or "file"),
-            cell(first(fm, "source_path")),
-            cell(first(fm, "date_ingested", "date_updated")),
-        ])
+        rows.append(
+            [
+                link(page),
+                cell(first(fm, "source_kind") or "file"),
+                cell(first(fm, "source_path")),
+                cell(first(fm, "date_ingested", "date_updated")),
+            ]
+        )
     return table(["Source", "Kind", "Path", "Ingested"], rows)
 
 
@@ -138,13 +139,15 @@ def build_entities(vault: Path) -> str:
     rows = []
     for page, fm in collect(vault, "entities"):
         grounded = first(fm, "realized_by") or []
-        rows.append([
-            link(page),
-            cell(first(fm, "entity_kind")),
-            cell(first(fm, "source_count") or 0),
-            cell(len(grounded) if grounded else ""),
-            cell(first(fm, "date_updated", "date_created")),
-        ])
+        rows.append(
+            [
+                link(page),
+                cell(first(fm, "entity_kind")),
+                cell(first(fm, "source_count") or 0),
+                cell(len(grounded) if grounded else ""),
+                cell(first(fm, "date_updated", "date_created")),
+            ]
+        )
     return table(["Entity", "Kind", "Sources", "Symbols", "Updated"], rows)
 
 
@@ -152,24 +155,28 @@ def build_concepts(vault: Path) -> str:
     rows = []
     for page, fm in collect(vault, "concepts"):
         grounded = first(fm, "realized_by") or []
-        rows.append([
-            link(page),
-            cell(first(fm, "confidence")),
-            cell(first(fm, "source_count") or 0),
-            cell(len(grounded) if grounded else ""),
-            cell(first(fm, "date_updated", "date_created")),
-        ])
+        rows.append(
+            [
+                link(page),
+                cell(first(fm, "confidence")),
+                cell(first(fm, "source_count") or 0),
+                cell(len(grounded) if grounded else ""),
+                cell(first(fm, "date_updated", "date_created")),
+            ]
+        )
     return table(["Concept", "Confidence", "Sources", "Symbols", "Updated"], rows)
 
 
 def build_synthesis(vault: Path) -> str:
     rows = []
     for page, fm in collect(vault, "synthesis"):
-        rows.append([
-            link(page),
-            cell(first(fm, "question", "query", "title")),
-            cell(first(fm, "date_updated", "date_ingested", "date_created")),
-        ])
+        rows.append(
+            [
+                link(page),
+                cell(first(fm, "question", "query", "title")),
+                cell(first(fm, "date_updated", "date_ingested", "date_created")),
+            ]
+        )
     return table(["Page", "Question", "Updated"], rows)
 
 
@@ -204,7 +211,7 @@ def absorb_legacy(text: str, section: str, block: str) -> str | None:
     if not looks_generated:
         return None
     replacement = f"{HEADINGS[section]}\n\n{block}\n\n"
-    return text[:match.start()] + replacement + text[match.end():]
+    return text[: match.start()] + replacement + text[match.end() :]
 
 
 def splice(text: str, section: str, body: str) -> str:
@@ -221,8 +228,7 @@ def splice(text: str, section: str, body: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("vault", nargs="?", default=".")
     parser.add_argument("--unprocessed", help="JSON output from check-sources.py")
     parser.add_argument("--dry-run", action="store_true", help="print instead of writing")
@@ -241,8 +247,10 @@ def main() -> int:
         except (OSError, json.JSONDecodeError) as exc:
             print(f"warning: could not read --unprocessed: {exc}", file=sys.stderr)
 
-    text = index_path.read_text(encoding="utf-8") if index_path.exists() else (
-        "---\ntype: index\ntags:\n  - wiki/index\n---\n\n# Wiki Index\n"
+    text = (
+        index_path.read_text(encoding="utf-8")
+        if index_path.exists()
+        else ("---\ntype: index\ntags:\n  - wiki/index\n---\n\n# Wiki Index\n")
     )
 
     builders = {

@@ -5,104 +5,114 @@ description: "Ingest raw sources into the LLM wiki. Use when the user says /wiki
 
 # Wiki Ingest
 
-Process one or more raw sources into the wiki following the LLM wiki pattern. Read CLAUDE.md for vault-specific conventions first.
+Process raw sources into the wiki. Scripts do the bookkeeping. You write only the source summary, the key claims, and the choice of entities and concepts.
+
+Read the vault's `CLAUDE.md` first. It defines the schema for the vault.
+
+## Scripts
+
+Every script lives in `<skill-dir>/scripts/` and runs directly. Each one finds the vault in this order: `--vault DIR`, then `$CLAUDE_PROJECT_DIR`, then the current directory. Run `<script> --help` for options.
+
+| Script | What it does |
+|---|---|
+| `check-sources.py` | Lists raw sources that are new or changed, each with its SHA-256. |
+| `scaffold-source.py` | Creates `Wiki/sources/<slug>.md` with the slug, frontmatter, `source_hash` and `date_ingested` filled. |
+| `wiki-pages.py` | Lists and finds entity and concept pages, creates new ones, and bumps `source_count`. |
+| `rebuild-index.py` | Regenerates the `Wiki/index.md` tables. |
+| `update-overview.py` | Refreshes the counts in `Wiki/overview.md`. |
+| `log-entry.py` | Appends the ingest entry to `Wiki/log.md`. |
+| `qmd-refresh.py` | Runs `qmd update && qmd embed`, or skips when `qmd` is not installed. |
+| `validate-wiki.py` | Checks schema, links, hashes, index, overview and log. |
+| `finalize-ingest.py` | Runs the index, overview, log, search refresh and validation steps in order. |
+| `commit-ingest.py` | Commits one source with a fixed message. |
+| `backfill-hashes.py` | Adds `source_hash` to old source pages. Run once per old wiki. |
 
 ## Workflow
 
+Do steps 1 to 5 once per source. The ingest is done only when step 6 passes.
+
 ### 1. Identify sources
 
-If the user specifies a file, use that. Otherwise run the shared checker in files mode:
+If the user names a file, use it. Otherwise run:
 
 ```bash
-uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR" --mode files
+<skill-dir>/scripts/check-sources.py
 ```
 
-This hashes each raw clipping (sha256) and compares it against the `source_hash` recorded on its `Wiki/sources/` page. It reports both **new** files (never ingested) and **changed** files (edited since ingest) — so a re-clipped or corrected source resurfaces instead of going stale. Add `--json` to feed the index rebuild in step 6.
+The output lists `new` sources and `changed` sources, each with its path and SHA-256. A changed source was edited after its summary was written. Add `--json` for machine output.
 
-### 2. Read each source fully
-
-Use the Read tool or `obsidian read` CLI. Never modify raw source files.
-
-### 3. Create source summary
-
-Write to `Wiki/sources/<slug>.md`:
-
-```yaml
----
-type: source-summary
-title: "<title>"
-source_path: "<path from vault root>"
-source_hash: "<sha256 of the raw file>"
-source_url: "<url>"
-author: "<author>"
-date_ingested: <today>
-tags:
-  - wiki/source
-  - <topic tags>
----
-```
-
-Get `source_hash` with `shasum -a 256 "<raw file>"` (or `python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "<raw file>"`). It must match what `check-sources.py --mode files` computes, so the checker recognises this source as unchanged on the next run.
-
-Include: Summary (2-3 paragraphs), Key Claims, Entities Mentioned (as `[[wikilinks]]`), Concepts Touched (as `[[wikilinks]]`), Raw Source link.
-
-### 4. Create or update entity pages
-
-For each entity mentioned, check if `Wiki/entities/<name>.md` exists.
-- **New**: Create with `type: entity`, `entity_kind:` (person/tool/org/repo), `source_count: 1`
-- **Existing**: Add mention, update facts, bump `source_count`, update `date_updated`
-
-### 5. Create or update concept pages
-
-For each concept, check if `Wiki/concepts/<name>.md` exists.
-- **New**: Create with `type: concept`, `confidence:` (high/medium/low), `source_count: 1`
-- **Existing**: Add insight, update relationships, bump `source_count`, update `date_updated`
-
-### 6. Rebuild index
-
-Do **not** hand-edit `Wiki/index.md`. Regenerate it from page frontmatter, feeding in the checker's unprocessed list:
+### 2. Scaffold the source page
 
 ```bash
-uv run <skill-dir>/scripts/check-sources.py "$CLAUDE_PROJECT_DIR" --mode files --json > /tmp/wiki-sources.json
-uv run <skill-dir>/scripts/rebuild-index.py "$CLAUDE_PROJECT_DIR" --unprocessed /tmp/wiki-sources.json
+<skill-dir>/scripts/scaffold-source.py "<raw path>"
 ```
 
-Prose outside the `<!-- BEGIN:x -->` / `<!-- END:x -->` fences is preserved; the Sources/Entities/Concepts/Synthesis/Unprocessed tables regenerate deterministically. On the first run against a legacy hand-maintained index, the old headings and tables are migrated in place (no duplication).
+For a changed source, add `--refresh`. It updates `source_hash` and `date_ingested` on the existing page. Then read the page and revise the summary to match the new text.
 
-### 7. Update overview
+Never edit `source_hash`, `source_path` or `date_ingested` by hand.
 
-Edit `Wiki/overview.md` if the source materially changes the big picture. Update the Status counts.
+### 3. Read the source and write the summary
 
-### 8. Update log
+Read the raw file in full. Never modify it. Replace every `TODO(ingest)` marker on the new page with:
 
-Append to `Wiki/log.md`:
+- a summary of two or three factual paragraphs;
+- the key claims, one per bullet;
+- the entities and concepts the source names, as `[[wikilinks]]`.
 
-```markdown
-## [YYYY-MM-DD] ingest | <Source Title>
+Add topic tags to the frontmatter `tags` list. Keep `wiki/source`. Keep the summary factual. Interpretation belongs on concept pages.
 
-- Source: [[<raw source path>]]
-- Created: [[<source-slug>]] (source)
-- Created entities: [[entity1]], [[entity2]]
-- Updated entities: [[entity3]]
-- Created concepts: [[concept1]]
-- Updated concepts: [[concept2]]
-```
+### 4. Choose entities and concepts
 
-### 9. Refresh search index
+Check which pages exist. The match uses page names, titles and `aliases`:
 
 ```bash
-qmd update && qmd embed
+<skill-dir>/scripts/wiki-pages.py list
+<skill-dir>/scripts/wiki-pages.py find "Name one" "Name two"
 ```
 
-### 10. Report
+For a page that exists, count the new source and add the mention in one command:
 
-Tell the user what was created/updated.
+```bash
+<skill-dir>/scripts/wiki-pages.py bump "<name>" --source <slug> --mention "<what the source says>"
+```
+
+For a page that does not exist, create it, then replace its `TODO(ingest)` markers:
+
+```bash
+<skill-dir>/scripts/wiki-pages.py new entity "<name>" --kind person --source <slug>
+<skill-dir>/scripts/wiki-pages.py new concept "<name>" --confidence medium --source <slug>
+```
+
+Entity kinds are `person`, `tool`, `org`, `repo` and `standard`. When the source contradicts a concept page, write the contradiction on that page. Do not overwrite the old claim.
+
+### 5. Finalize
+
+```bash
+<skill-dir>/scripts/finalize-ingest.py <slug> --note "<optional free-text line for the log>"
+```
+
+The script rejects pages that still hold a `TODO(ingest)` marker, a broken link or a wrong hash. It then rebuilds the index, refreshes the overview counts, appends the log entry, refreshes the search index, and validates the result. Use `--note` for a contradiction, a skipped entity or a vendor caveat.
+
+If the source changes the big picture, edit the themes in `Wiki/overview.md` by hand, then run `update-overview.py`.
+
+### 6. Validate and commit
+
+```bash
+<skill-dir>/scripts/validate-wiki.py --source <slug>
+<skill-dir>/scripts/commit-ingest.py <slug>
+```
+
+`commit-ingest.py` runs the validator first and commits only paths under `Wiki/`. It makes one commit per source and never pushes. Skip it when the user did not ask for commits.
+
+### 7. Report
+
+Tell the user which pages the ingest created and which it updated. Copy them from the log entry.
 
 ## Rules
 
-- NEVER modify raw source files
-- Use `[[wikilinks]]` heavily in all wiki pages
-- Every page gets `type:` in frontmatter and `wiki/*` tags
-- Keep summaries factual; interpretation goes in concept/synthesis pages
-- When sources contradict existing wiki content, note explicitly on the concept page
-- Use `[key::value]` inline metadata for Dataview fields
+- NEVER modify raw source files.
+- NEVER edit the generated tables in `Wiki/index.md` by hand.
+- Use `[[wikilinks]]` in all wiki pages.
+- Every page has `type:` in frontmatter and a `wiki/*` tag.
+- Use `[key::value]` inline metadata for Dataview fields.
+- Keep the `<!-- BEGIN:x -->` and `<!-- END:x -->` markers in `Wiki/index.md`.

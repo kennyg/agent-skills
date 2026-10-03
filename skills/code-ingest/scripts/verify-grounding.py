@@ -87,9 +87,7 @@ CITATION = re.compile(r"(?<![\w/])([A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+\.[A-Za
 # [[Entity]]. The optional trailing "()" matters — prose naturally writes
 # `resolvePluginDir()` for a function, and requiring a bare identifier silently
 # skipped exactly the citations most worth checking.
-ANCHOR = re.compile(
-    r"`(?:[A-Za-z_][A-Za-z0-9_]*::)?([A-Za-z_][A-Za-z0-9_]*)(?:\([^`]*\))?`|\[\[([^\]|#]+)"
-)
+ANCHOR = re.compile(r"`(?:[A-Za-z_][A-Za-z0-9_]*::)?([A-Za-z_][A-Za-z0-9_]*)(?:\([^`]*\))?`|\[\[([^\]|#]+)")
 
 FENCE = re.compile(r"^\s*(```|~~~)")
 
@@ -123,11 +121,7 @@ def index_names(db_path: Path) -> tuple[set[str], set[str]]:
     """
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        symbols = {
-            r[0] for r in conn.execute(
-                "SELECT qualified_name FROM nodes WHERE kind != 'file'"
-            ) if r[0]
-        }
+        symbols = {r[0] for r in conn.execute("SELECT qualified_name FROM nodes WHERE kind != 'file'") if r[0]}
         files = {r[0] for r in conn.execute("SELECT path FROM files") if r[0]}
     finally:
         conn.close()
@@ -141,9 +135,7 @@ def symbol_lines(conn: sqlite3.Connection) -> dict[tuple[str, str], set[int]]:
     once per file — two classes each with a `constructor`, an overload pair.
     """
     out: dict[tuple[str, str], set[int]] = {}
-    for path, name, line in conn.execute(
-        "SELECT file_path, name, start_line FROM nodes WHERE start_line IS NOT NULL"
-    ):
+    for path, name, line in conn.execute("SELECT file_path, name, start_line FROM nodes WHERE start_line IS NOT NULL"):
         if path and name:
             out.setdefault((str(path), str(name)), set()).add(int(line))
     return out
@@ -207,8 +199,7 @@ class SourceText:
     def lines(self, path: str) -> list[str] | None:
         if path not in self._lines:
             try:
-                self._lines[path] = self.repo.joinpath(path).read_text(
-                    encoding="utf-8").splitlines()
+                self._lines[path] = self.repo.joinpath(path).read_text(encoding="utf-8").splitlines()
             except (OSError, UnicodeDecodeError):
                 self._lines[path] = None
         return self._lines[path]
@@ -222,14 +213,11 @@ class SourceText:
                 self._found[key] = set()
             else:
                 pattern = re.compile(rf"\b{re.escape(name)}\b")
-                self._found[key] = {
-                    i for i, line in enumerate(lines, 1) if pattern.search(line)
-                }
+                self._found[key] = {i for i, line in enumerate(lines, 1) if pattern.search(line)}
         return self._found[key]
 
 
-def check_citations(repo: Path, indexed_files: set[str],
-                    sym_lines: dict[tuple[str, str], set[int]]) -> list[dict]:
+def check_citations(repo: Path, indexed_files: set[str], sym_lines: dict[tuple[str, str], set[int]]) -> list[dict]:
     """Flag `file:line` citations in prose that the index contradicts.
 
     Three failures, in increasing subtlety:
@@ -267,18 +255,15 @@ def check_citations(repo: Path, indexed_files: set[str],
         for lineno, line in prose_paragraphs(text):
             for path, cited in CITATION.findall(line):
                 cited = int(cited)
-                base = {"page": rel_page, "page_line": lineno,
-                        "path": path, "cited_line": cited}
+                base = {"page": rel_page, "page_line": lineno, "path": path, "cited_line": cited}
 
                 if path not in indexed_files:
-                    findings.append({**base, "kind": "unknown-file",
-                                     "detail": "path is not in the codegraph index"})
+                    findings.append({**base, "kind": "unknown-file", "detail": "path is not in the codegraph index"})
                     continue
 
                 file_lines = source.lines(path)
                 if file_lines is not None and cited > len(file_lines):
-                    findings.append({**base, "kind": "out-of-range",
-                                     "detail": f"file has {len(file_lines)} lines"})
+                    findings.append({**base, "kind": "out-of-range", "detail": f"file has {len(file_lines)} lines"})
                     continue
 
                 # A prose line often carries several citations and several
@@ -315,17 +300,20 @@ def check_citations(repo: Path, indexed_files: set[str],
                     # actually tells the reader where to look.
                     name, actual = min(
                         candidates.items(),
-                        key=lambda kv: (kinds[kv[0]] != "defined at",
-                                        min(abs(n - cited) for n in kv[1])),
+                        key=lambda kv: (kinds[kv[0]] != "defined at", min(abs(n - cited) for n in kv[1])),
                     )
                     shown = sorted(actual)[:5]
                     where = ", ".join(str(n) for n in shown)
                     if len(actual) > len(shown):
                         where += f", … ({len(actual)} total)"
-                    findings.append({
-                        **base, "kind": "stale-anchor", "symbol": name,
-                        "detail": f"`{name}` {kinds[name]} {where}",
-                    })
+                    findings.append(
+                        {
+                            **base,
+                            "kind": "stale-anchor",
+                            "symbol": name,
+                            "detail": f"`{name}` {kinds[name]} {where}",
+                        }
+                    )
     return findings
 
 
@@ -377,11 +365,9 @@ def check(repo: Path, symbols: set[str], files: set[str]) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo", nargs="?", default=".")
-    parser.add_argument("--db", help="codegraph db path (default <repo>/%s)" % DEFAULT_DB)
+    parser.add_argument("--db", help=f"codegraph db path (default <repo>/{DEFAULT_DB})")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument(
         "--strict",
@@ -440,8 +426,9 @@ def main() -> int:
         print("No realized_by symbols found — nothing to verify.")
         return 0
 
-    print(f"{result['resolved']}/{result['total']} realized_by symbols "
-          f"resolved across {result['pages_checked']} page(s)")
+    print(
+        f"{result['resolved']}/{result['total']} realized_by symbols resolved across {result['pages_checked']} page(s)"
+    )
 
     if result["missing"]:
         print(f"\nMISSING — not in the index ({len(result['missing'])}):")
@@ -463,8 +450,9 @@ def main() -> int:
     if result["citations"]:
         print(f"\nSTALE LINE REFERENCES ({len(result['citations'])}):")
         for c in result["citations"]:
-            print(f"  ✗ {c['page']}:{c['page_line']}  cites {c['path']}:{c['cited_line']}"
-                  f"  [{c['kind']}] — {c['detail']}")
+            print(
+                f"  ✗ {c['page']}:{c['page_line']}  cites {c['path']}:{c['cited_line']}  [{c['kind']}] — {c['detail']}"
+            )
 
     if result["ok"]:
         print("\nOK — every page is grounded in the index.")
