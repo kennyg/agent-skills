@@ -136,11 +136,7 @@ def raw_sources_code(db_path: Path) -> list[tuple[str, str]]:
         rows = conn.execute("SELECT path, content_hash FROM files ORDER BY path").fetchall()
     finally:
         conn.close()
-    return [
-        (str(path), str(content_hash))
-        for path, content_hash in rows
-        if not str(path).startswith(SKIP_PREFIXES)
-    ]
+    return [(str(path), str(content_hash)) for path, content_hash in rows if not str(path).startswith(SKIP_PREFIXES)]
 
 
 def classify(indexed: dict[str, str | None], raw: list[tuple[str, str]]):
@@ -160,12 +156,10 @@ def classify(indexed: dict[str, str | None], raw: list[tuple[str, str]]):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("vault", nargs="?", default=".")
     parser.add_argument("--mode", choices=["files", "code"], default="files")
-    parser.add_argument("--db", help="codegraph db path (code mode; default <vault>/%s)" % DEFAULT_DB)
+    parser.add_argument("--db", help=f"codegraph db path (code mode; default <vault>/{DEFAULT_DB})")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     args = parser.parse_args()
 

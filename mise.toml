@@ -11,6 +11,8 @@ typos = "latest"
 # Python
 uv = "latest"
 python = "3.13"
+# Pinned: a ruff release can change formatting, which would fail `hk check` on a clean tree.
+ruff = "0.16.7"
 
 [env]
 _.python.venv = { path = ".venv", create = true }

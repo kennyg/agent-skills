@@ -36,7 +36,7 @@ All facts below come from `<repo>/.codegraph/codegraph.db` (SQLite). Key tables:
 Ask the checker what is new or changed since the last ingest:
 
 ```bash
-uv run <skill-dir>/scripts/check-sources.py "$REPO" --mode code
+<skill-dir>/scripts/check-sources.py "$REPO" --mode code
 ```
 
 `--mode code` reads the codegraph `files` table and compares each file's `content_hash` against the `source_hash` recorded on its `Wiki/sources/` page. It reports `new` (never ingested) and `changed` (refactored since ingest).
@@ -46,7 +46,7 @@ uv run <skill-dir>/scripts/check-sources.py "$REPO" --mode code
 Everything else codegraph indexed is fair game, so **scope deliberately**. A full index may list 100+ files and will include lockfiles, fixtures, and generated code that deserve no page. Ingest `src/**` before tests and scripts, and pass the same globs to `scaffold-sources.py`:
 
 ```bash
-uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**' --only 'vite.config.ts'
+<skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**' --only 'vite.config.ts'
 ```
 
 Files you deliberately skip stay in the checker's `new` list. That is correct — it is a standing reminder of what the wiki does not cover. Record the decision in `Wiki/log.md` so the next run doesn't re-litigate it.
@@ -81,9 +81,9 @@ Never modify source code. This skill only reads.
 Do **not** hand-write source pages. Generate them:
 
 ```bash
-uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --dry-run    # review first
-uv run <skill-dir>/scripts/scaffold-sources.py "$REPO"
-uv run <skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**'  # scope a big repo
+<skill-dir>/scripts/scaffold-sources.py "$REPO" --dry-run    # review first
+<skill-dir>/scripts/scaffold-sources.py "$REPO"
+<skill-dir>/scripts/scaffold-sources.py "$REPO" --only 'src/**'  # scope a big repo
 ```
 
 One page per indexed file at `Wiki/sources/<slug>.md`. The script owns
@@ -154,7 +154,7 @@ When the code contradicts a documented concept (dead code, a pattern half-migrat
 Before rebuilding the index, prove every page is anchored in real code:
 
 ```bash
-uv run <skill-dir>/scripts/verify-grounding.py "$REPO"
+<skill-dir>/scripts/verify-grounding.py "$REPO"
 ```
 
 Two checks run. First, every `realized_by` entry is resolved against the index.
@@ -189,8 +189,8 @@ looks like evidence.
 Do **not** hand-edit `Wiki/index.md`. Regenerate it from page frontmatter, feeding in the checker's unprocessed list:
 
 ```bash
-uv run <skill-dir>/scripts/check-sources.py "$REPO" --mode code --json > /tmp/code-sources.json
-uv run <skill-dir>/scripts/rebuild-index.py "$REPO" --unprocessed /tmp/code-sources.json
+<skill-dir>/scripts/check-sources.py "$REPO" --mode code --json > /tmp/code-sources.json
+<skill-dir>/scripts/rebuild-index.py "$REPO" --unprocessed /tmp/code-sources.json
 ```
 
 Prose you write outside the `<!-- BEGIN:x -->` / `<!-- END:x -->` fences is preserved; only the tables regenerate.
@@ -200,8 +200,8 @@ Prose you write outside the `<!-- BEGIN:x -->` / `<!-- END:x -->` fences is pres
 Regenerate `Wiki/code-areas.yml` — the coarse map of the codebase — from the graph, not by hand:
 
 ```bash
-uv run <skill-dir>/scripts/seed-areas.py "$REPO" --dry-run   # review first
-uv run <skill-dir>/scripts/seed-areas.py "$REPO"             # write it
+<skill-dir>/scripts/seed-areas.py "$REPO" --dry-run   # review first
+<skill-dir>/scripts/seed-areas.py "$REPO"             # write it
 ```
 
 Areas come from framework **route** nodes when the repo has them (web apps); otherwise the seeder falls back to module boundaries derived from the graph. Always review `--dry-run` before writing.

@@ -72,16 +72,16 @@ def frontmatter(text: str):
 
 def insert_hash(fm_text: str, digest: str) -> str | None:
     """Insert a source_hash line right after source_path; None if no anchor."""
+
     def repl(m: re.Match) -> str:
         return f'{m.group(0)}\n{m.group(1)}source_hash: "{digest}"'
+
     new_text, n = SOURCE_PATH_RE.subn(repl, fm_text, count=1)
     return new_text if n else None
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("vault", nargs="?", default=".")
     parser.add_argument("--mode", choices=["files", "code"], default="files")
     parser.add_argument("--db", help="codegraph db path (code mode)")
