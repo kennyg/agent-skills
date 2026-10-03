@@ -4,12 +4,12 @@
 # Installs herdr, treehouse, and no-mistakes using each tool's native vendor
 # installer, targeting /usr/local/bin so the binaries resolve on the default
 # PATH — including the non-interactive, non-login shell a plain
-# `ssh host 'herdr ...'` gets (where ~/.local/bin and mise shims are absent).
+# `ssh host 'herdr ...'` gets (where $HOME/.local/bin and mise shims are absent).
 # mise is still installed (for tools like node) and kept as a per-tool fallback
 # if a vendor installer fails. Idempotent and safe to re-run. Run it ON the host
 # you are landing on, e.g.:
 #   ssh <host> 'bash -s' < going-ashore.sh
-#   # or copy it over and run:  bash ~/going-ashore.sh
+#   # or copy it over and run:  bash $HOME/going-ashore.sh
 set -u
 
 log() { printf '\n== %s ==\n' "$1"; }
@@ -23,7 +23,7 @@ command -v curl >/dev/null 2>&1 || {
 	exit 1
 }
 # NOTE: do NOT prepend $HOME/.local/bin to PATH. The treehouse / no-mistakes
-# installers self-target /usr/local/bin ONLY when ~/.local/bin is absent from
+# installers self-target /usr/local/bin ONLY when $HOME/.local/bin is absent from
 # PATH; prepending it diverts them back to the per-user dir that vanishes over a
 # non-interactive SSH shell.
 
@@ -93,13 +93,13 @@ land() {
 }
 
 log "Land toolchain"
-# herdr: installer defaults to ~/.local/bin and does NOT self-sudo, so run it
+# herdr: installer defaults to $HOME/.local/bin and does NOT self-sudo, so run it
 # under sudo with an explicit /usr/local/bin target (that dir is root-owned).
 land herdr "sudo env HERDR_INSTALL_DIR=/usr/local/bin sh -c 'curl -fsSL https://herdr.dev/install.sh | sh'" 'herdr github:ogulcancelik/herdr'
-# treehouse: self-targets /usr/local/bin and self-sudos when ~/.local/bin is
+# treehouse: self-targets /usr/local/bin and self-sudos when $HOME/.local/bin is
 # not on PATH; run plainly.
 land treehouse 'curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh' 'github:kunchenguid/treehouse'
-# no-mistakes: installs under ~/.no-mistakes/bin and self-sudo-symlinks it into
+# no-mistakes: installs under $HOME/.no-mistakes/bin and self-sudo-symlinks it into
 # /usr/local/bin; run plainly.
 land no-mistakes 'curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh' 'github:kunchenguid/no-mistakes'
 
@@ -132,7 +132,7 @@ if grep -qs 'mise activate' "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" 2>/d
 else
 	warn "mise-managed tools (e.g. node) need mise activated in new shells:"
 	# shellcheck disable=SC2016  # the $(...) is printed literally for the user to copy, not expanded
-	printf '        echo '\''eval "$(mise activate bash)"'\'' >> ~/.bashrc   # or your shell'\''s rc\n'
+	printf '        echo '\''eval "$(mise activate bash)"'\'' >> $HOME/.bashrc   # or your shell'\''s rc\n'
 fi
 
 log "Result"
