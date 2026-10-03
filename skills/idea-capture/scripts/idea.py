@@ -32,17 +32,13 @@ from pathlib import Path
 STATUSES = ("captured", "exploring", "parked", "done")
 SKILL_DIR = Path(__file__).resolve().parent.parent
 BASE_ASSET = SKILL_DIR / "assets" / "ideas.base"
-STOPWORDS = frozenset(
-    "a an and are as at be by for from how in into is it of on or the to with".split()
-)
+STOPWORDS = frozenset("a an and are as at be by for from how in into is it of on or the to with".split())
 # Share of the query tokens a candidate must hold to count as a close match.
 CLOSE_MATCH = 0.5
 
 
 def slugify(text: str) -> str:
-    ascii_text = (
-        unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    )
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
     return slug[:60].rstrip("-") or "idea"
 
@@ -147,9 +143,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     slug = slugify(args.title)
     note = root / "Ideas" / f"{slug}.md"
     if note.exists():
-        sys.exit(
-            f"idea.py: Ideas/{slug}.md exists. Update it instead of creating a duplicate."
-        )
+        sys.exit(f"idea.py: Ideas/{slug}.md exists. Update it instead of creating a duplicate.")
     today = dt.date.today().isoformat()
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(render_note(args, today), encoding="utf-8")
