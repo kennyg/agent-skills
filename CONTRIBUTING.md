@@ -38,6 +38,7 @@ Take the project root from an argument. If the user gives no argument, read `$CL
 |---|---|
 | `mise run check` | Runs every `hk` check on all files. |
 | `mise run fix` | Runs every `hk` fixer on all files. |
+| `mise run test-skills` | Runs the `unittest` suite in each `skills/*/tests` folder. |
 
 The `hk` steps for skill scripts are `ruff`, `ruff_format`, `script-header` and `script-paths`. The last two are small scripts in `scripts/`: `check-script-header.sh` and `check-script-paths.sh`. Each one prints the files that break its rule.
 
