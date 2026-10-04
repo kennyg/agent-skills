@@ -58,6 +58,55 @@ class PageSlug(unittest.TestCase):
         self.assertEqual(wl.slugify("日本語"), "untitled")
 
 
+class Apostrophes(unittest.TestCase):
+    def test_straight_and_curly_apostrophes_are_deleted(self) -> None:
+        self.assertEqual(wl.page_slug("AI's Best Engineering Teams"), "ais-best-engineering-teams")
+        self.assertEqual(wl.page_slug("AI\u2019s Best Engineering Teams"), "ais-best-engineering-teams")
+        self.assertEqual(wl.page_slug("Don't 'quote' me"), "dont-quote-me")
+
+    def test_other_punctuation_still_breaks_a_word(self) -> None:
+        self.assertEqual(wl.page_slug("a-b/c's"), "a-b-cs")
+
+
+class ClipSlug(unittest.TestCase):
+    def test_a_short_name_is_the_page_slug(self) -> None:
+        self.assertEqual(wl.clip_slug("Post by @karpathy on X"), "post-by-karpathy-on-x")
+
+    def test_a_long_title_is_capped_at_80(self) -> None:
+        slug = wl.clip_slug("word " * 40)
+        self.assertLessEqual(len(slug), wl.CLIP_SLUG_LIMIT)
+        self.assertEqual(slug, "-".join(["word"] * 16))  # 16 words = 79 characters
+
+    def test_the_cut_is_at_the_last_hyphen_at_or_before_80(self) -> None:
+        # 79 + hyphen at index 79, then a word: the cut keeps 79 characters.
+        title = "a" * 79 + " tail"
+        self.assertEqual(wl.clip_slug(title), "a" * 79)
+        # A hyphen at index 80 keeps exactly 80 characters.
+        title = "a" * 80 + " tail"
+        self.assertEqual(wl.clip_slug(title), "a" * 80)
+        # A word that crosses 80 is dropped whole.
+        title = "a" * 70 + " " + "b" * 20
+        self.assertEqual(wl.clip_slug(title), "a" * 70)
+
+    def test_no_trailing_hyphen(self) -> None:
+        for title in ("a" * 80 + " b", "a " * 60, "x" * 79 + "- - -y" * 5, "a" * 100):
+            slug = wl.clip_slug(title)
+            self.assertFalse(slug.endswith("-"), slug)
+            self.assertLessEqual(len(slug), 80)
+
+    def test_a_name_with_no_hyphen_is_cut_at_80(self) -> None:
+        self.assertEqual(wl.clip_slug("a" * 100), "a" * 80)
+
+    def test_the_result_is_stable(self) -> None:
+        slug = wl.clip_slug("word " * 40)
+        self.assertEqual(wl.clip_slug(slug), slug)
+        self.assertFalse(wl.needs_slug(slug))
+        self.assertTrue(wl.needs_slug("a" * 100))
+
+    def test_wiki_page_slugs_stay_uncapped(self) -> None:
+        self.assertEqual(len(wl.page_slug("word " * 40)), 199)
+
+
 class WikiLink(unittest.TestCase):
     def test_link_forms(self) -> None:
         self.assertEqual(wl.wikilink("a-b", "A B"), "[[a-b|A B]]")

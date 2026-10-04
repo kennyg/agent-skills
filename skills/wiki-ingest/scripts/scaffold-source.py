@@ -114,7 +114,7 @@ def rename_clipping(vault: Path, rel: str, clip_slug: str | None, page_slug: str
             print(f"error: --clip-slug applies to {clips.CLIP_DIR}/ only; {rel} is not there", file=sys.stderr)
             return None
         return rel
-    new_stem = clip_slug or wl.page_slug(old.stem)
+    new_stem = clip_slug or wl.clip_slug(old.stem)
     if not clip_slug and not wl.needs_slug(old.stem):
         return rel
     if not clips.valid_slug(new_stem):

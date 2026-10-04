@@ -132,7 +132,7 @@ def plan_backfill(vault: Path, overrides: dict[str, str] | None = None) -> Plan:
             path.stem.casefold() in overrides or wl.needs_slug(path.stem)
         ):
             continue
-        slug = overrides.get(path.stem.casefold()) or wl.page_slug(path.stem)
+        slug = overrides.get(path.stem.casefold()) or wl.clip_slug(path.stem)
         if not slug:
             collisions.setdefault(f"(no ASCII letter or digit in the name {path.stem!r}; pass --clip-slug)", []).append(
                 rel(vault, path)

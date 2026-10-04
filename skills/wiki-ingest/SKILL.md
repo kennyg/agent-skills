@@ -33,7 +33,7 @@ Every script lives in `<skill-dir>/scripts/` and runs directly. Each one finds t
 
 Every wiki page file name is a slug. It has no spaces.
 
-- The file name is the lowercase kebab-case slug of the page title. It uses ASCII only. Punctuation is dropped. A run of separators becomes one hyphen. `MCP (Model Context Protocol)` is `mcp-model-context-protocol.md`. `Exploration-Exploitation Trade-off` is `exploration-exploitation-trade-off.md`.
+- The file name is the lowercase kebab-case slug of the page title. It uses ASCII only. Apostrophes (`'` and `’`) are deleted, so `AI's` is `ais`. Other punctuation is dropped. A run of separators becomes one hyphen. `MCP (Model Context Protocol)` is `mcp-model-context-protocol.md`. `Exploration-Exploitation Trade-off` is `exploration-exploitation-trade-off.md`.
 - The frontmatter keeps the title in `title:` and lists it in `aliases:`. Search and link suggestions in Obsidian find the page by title.
 - Write a link as `[[slug|Title]]`. In a Markdown table, write `[[slug\|Title]]`. A link to an alias does not open the page, so always link the slug.
 - One file name belongs to one page. `wiki-pages.py new` stops when a page in `Wiki/` already uses the slug. Pass `--slug` to pick another one.
@@ -59,7 +59,7 @@ The output lists `new` sources and `changed` sources, each with its path and SHA
 <skill-dir>/scripts/scaffold-source.py "<raw path>"
 ```
 
-For a clipping in `Clippings/`, the script first renames the file to the slug of its name with `git mv`. `Post by @karpathy on X.md` becomes `post-by-karpathy-on-x.md`. The content and the `source_hash` do not change, and the script stops if the hash differs after the move. `source_path` and the `Raw Source` link use the new name. The script refuses when a note in `Clippings/` already has the new name. Pass `--clip-slug <name>` to choose another name. The script warns when a note in another folder has the same name, for example the source page it creates.
+For a clipping in `Clippings/`, the script first renames the file to the slug of its name with `git mv`. `Post by @karpathy on X.md` becomes `post-by-karpathy-on-x.md`. The content and the `source_hash` do not change, and the script stops if the hash differs after the move. `source_path` and the `Raw Source` link use the new name. The name is at most 80 characters before `.md`. The script cuts it at the last hyphen at or before 80 and never leaves a trailing hyphen. Wiki page slugs have no cap. The script refuses when a note in `Clippings/` already has the new name, including a name made by the cut. Pass `--clip-slug <name>` to choose another name. The script warns when a note in another folder has the same name, for example the source page it creates.
 
 `Twitter-Captures/` files already have slug names. The script never renames them.
 
@@ -169,7 +169,7 @@ The dry run prints the rename map, the source pages it changes, the link count p
 
 The real run does five things:
 
-1. Renames each clipping whose name is not a slug with `git mv`, and checks that its SHA-256 is the same afterwards. If one hash differs, it moves every file back and stops.
+1. Renames each clipping whose name is not a slug, or is longer than 80 characters, with `git mv`, and checks that its SHA-256 is the same afterwards. If one hash differs, it moves every file back and stops.
 2. Sets `source_path` on each source page that names a renamed clipping.
 3. Rewrites each link to an old clipping name in `Wiki/`, `Ideas/` and `Inbox/` to `[[Clippings/slug|Old name]]`. A link keeps its display text and its `#heading` or `^block` suffix. Links in code stay as they are.
 4. Rebuilds the tables in `Wiki/index.md`.

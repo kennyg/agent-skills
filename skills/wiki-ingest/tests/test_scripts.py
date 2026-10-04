@@ -546,6 +546,43 @@ BACKFILL_FILES = {
 }
 
 
+LONG_TITLE = "Long clipping title " * 6  # a 114-character slug
+LONG_SLUG = "-".join(["long-clipping-title"] * 4)  # 79 characters
+
+
+class ClippingCap(VaultCase):
+    def test_ingest_caps_the_clipping_name(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text('---\ntitle: "Capped"\n---\nBody\n', encoding="utf-8")
+        r = self.v("scaffold-source.py", f"Clippings/{LONG_TITLE}.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.vault / f"Clippings/{LONG_SLUG}.md").is_file())
+        self.assertIn(f'source_path: "Clippings/{LONG_SLUG}.md"', (self.vault / "Wiki/sources/capped.md").read_text())
+
+    def test_ingest_refuses_when_the_cut_name_is_taken(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text("Long.\n", encoding="utf-8")
+        (self.vault / f"Clippings/{LONG_SLUG}.md").write_text("Taken.\n", encoding="utf-8")
+        r = self.v("scaffold-source.py", f"Clippings/{LONG_TITLE}.md")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(f"{LONG_SLUG}.md", r.stderr)
+
+    def test_backfill_caps_and_refuses_two_cut_names_that_collide(self) -> None:
+        for suffix in ("one", "two"):
+            (self.vault / f"Clippings/{LONG_TITLE}{suffix}.md").write_text(suffix, encoding="utf-8")
+        r = self.v("slug-clippings.py", "--dry-run")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"Clippings/{LONG_SLUG}.md", r.stdout)
+        self.assertIn("collision(s)", r.stdout)
+        ok = self.v("slug-clippings.py", "--clip-slug", f"{LONG_TITLE}one=one", "--clip-slug", f"{LONG_TITLE}two=two")
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+
+    def test_backfill_cuts_a_long_name_and_leaves_a_capped_name_alone(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text("Long.\n", encoding="utf-8")
+        self.assertEqual(self.v("slug-clippings.py").returncode, 0)
+        self.assertTrue((self.vault / f"Clippings/{LONG_SLUG}.md").is_file())
+        again = self.v("slug-clippings.py")
+        self.assertIn("Nothing to do", again.stdout)
+
+
 class Backfill(VaultCase):
     def setUp(self) -> None:
         super().setUp()
