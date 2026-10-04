@@ -349,7 +349,11 @@ def check_page(vault: Path, folder: str, page: wl.Page, targets: set[str], alias
     if kind == "source-summary":
         raw = vault / str(fm.get("source_path", ""))
         if not raw.is_file():
-            report.error(where, f"raw source not found: {fm.get('source_path')}")
+            hint = ""
+            for item in wl.classify(vault)["renamed"]:
+                if item["page"] == page.path.stem:
+                    hint = f"; the same content is at {item['source']}, so set `source_path` to it"
+            report.error(where, f"raw source not found: {fm.get('source_path')}{hint}")
         elif str(fm.get("source_hash")) != wl.sha256_file(raw):
             report.error(
                 where,
@@ -408,6 +412,10 @@ def check_log(vault: Path, slugs: list[str], scoped: bool, report: Report) -> No
         )
 
 
+def scoped_path(vault: Path, slug: str) -> str:
+    return str(wl.parse_frontmatter(wl.source_page_path(vault, slug)).get("source_path", ""))
+
+
 def validate(vault: Path, slug: str | None = None, pages_only: bool = False) -> tuple[Report, int]:
     """Validate the wiki, or one ingest when `slug` is given. Return (report, pages checked)."""
     report = Report()
@@ -417,6 +425,18 @@ def validate(vault: Path, slug: str | None = None, pages_only: bool = False) -> 
             report.error(
                 where, f"file name has a space; use `{wl.page_slug(path.stem) or 'a slug'}.md` (migrate-slugs.py)"
             )
+    loose = [
+        rel
+        for rel in wl.raw_sources(vault)
+        if rel.startswith("Clippings/")
+        and wl.needs_slug(Path(rel).stem)
+        and (not slug or rel == scoped_path(vault, slug))
+    ]
+    if loose:
+        report.warn(
+            "Clippings",
+            f"{len(loose)} clipping(s) have a file name that is not a slug; run slug-clippings.py: {', '.join(loose)}",
+        )
     targets = known_targets(vault)
     aliases = alias_targets(vault)
     checked = 0

@@ -10,6 +10,10 @@ Each raw file in `Clippings/` and `Twitter-Captures/` is matched to a page in
 SHA-256 differs from the page's `source_hash` is `changed`. The queue lists
 each path with its SHA-256, so the hash goes straight into the source page.
 
+A file with no page whose hash equals the `source_hash` of a page with a missing
+raw file is `renamed`. It is not in the queue, because the content is already
+ingested. The page needs a new `source_path`.
+
 `Twitter-Captures/README.md`, `Twitter-Captures/bookmarks.md`, `_index.md` and
 `templates/` are not sources. This script is read-only.
 
@@ -50,7 +54,7 @@ def main() -> int:
     args, vault = wl.parse(parser)
 
     result = wl.classify(vault)
-    new, changed = result["new"], result["changed"]
+    new, changed, renamed = result["new"], result["changed"], result["renamed"]
     inbox = inbox_count(vault)
     status = 1 if args.exit_code and (new or changed) else 0
 
@@ -58,6 +62,7 @@ def main() -> int:
         payload = {
             "new": new,
             "changed": changed,
+            "renamed": renamed,
             "unchanged_count": result["unchanged_count"],
             "inbox_notes": inbox,
         }
@@ -68,8 +73,12 @@ def main() -> int:
         print(f"new:      {item['source']}  {item['sha256']}")
     for item in changed:
         print(f"changed:  {item['source']}  {item['sha256']}  ->  {item['page']}  ({item['reason']})")
+    for item in renamed:
+        print(f"renamed:  {item['source']}  <-  {item['was']}  ({item['page']} names the old path)")
     print("---")
     print(f"new sources: {len(new)}   changed sources: {len(changed)}   Inbox notes: {inbox}")
+    if renamed:
+        print(f"renamed sources: {len(renamed)} (not in the queue; set `source_path` on each page)")
     footer = git_footer(vault)
     if footer:
         print(footer)

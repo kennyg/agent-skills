@@ -12,12 +12,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import _wikiclips as clips  # noqa: E402
+
 FIXTURE = HERE / "fixtures" / "vault"
 BETA = "Clippings/Beta Article.md"
 
@@ -139,11 +143,12 @@ class FullIngest(VaultCase):
         page.write_text(text, encoding="utf-8")
 
     def test_scaffold_finalize_commit(self) -> None:
+        digest = sha256(self.vault / BETA)
         scaffold = self.v("scaffold-source.py", BETA)
         self.assertEqual(scaffold.returncode, 0, scaffold.stderr)
         page = self.vault / "Wiki/sources/beta-the-sequel.md"
         text = page.read_text()
-        self.assertIn(f'source_hash: "{sha256(self.vault / BETA)}"', text)
+        self.assertIn(f'source_hash: "{digest}"', text)
         self.assertIn('author: "Bo Writer"', text)
 
         blocked = self.v("finalize-ingest.py", "beta-the-sequel")
@@ -190,8 +195,134 @@ class FullIngest(VaultCase):
         self.assertEqual(committed.returncode, 0, committed.stdout + committed.stderr)
         message = subprocess.run([*git, "log", "-1", "--format=%B"], capture_output=True, text=True).stdout
         self.assertTrue(
-            message.startswith("wiki: ingest beta-the-sequel\n\nSource: Clippings/Beta Article.md\nSHA-256: ")
+            message.startswith("wiki: ingest beta-the-sequel\n\nSource: Clippings/beta-article.md\nSHA-256: ")
         )
+
+    def test_commit_holds_the_clipping_rename(self) -> None:
+        git = ["git", "-C", str(self.vault), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        raw = (self.vault / BETA).read_bytes()
+        self.assertEqual(self.v("scaffold-source.py", BETA).returncode, 0)
+        staged = subprocess.run([*git, "status", "--short"], capture_output=True, text=True).stdout
+        self.assertRegex(staged, r"(?m)^R +\"?Clippings/Beta Article\.md\"? -> Clippings/beta-article\.md")
+        self.finish_pages()
+        for name, mention in (("Acme", "subject"), ("Compounding", "theme")):
+            self.v("wiki-pages.py", "bump", name, "--source", "beta-the-sequel", "--mention", mention)
+        self.assertEqual(self.v("finalize-ingest.py", "beta-the-sequel").returncode, 0)
+        env = {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.test",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.test",
+        }
+        done = self.run_script("commit-ingest.py", "--vault", str(self.vault), "beta-the-sequel", env=env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        shown = subprocess.run(
+            [*git, "show", "--name-status", "-M", "--format=", "HEAD"], capture_output=True, text=True
+        )
+        self.assertRegex(shown.stdout, r"(?m)^R100\t\"?Clippings/Beta Article\.md\"?\tClippings/beta-article\.md")
+        self.assertEqual(raw, (self.vault / "Clippings/beta-article.md").read_bytes())
+        left = subprocess.run([*git, "status", "--short", "--", "Clippings"], capture_output=True, text=True).stdout
+        self.assertEqual(left, "")
+
+
+class ClippingRename(VaultCase):
+    def test_ingest_renames_the_clipping_and_keeps_its_bytes(self) -> None:
+        before = (self.vault / BETA).read_bytes()
+        r = self.v("scaffold-source.py", BETA)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("renamed Clippings/Beta Article.md -> Clippings/beta-article.md", r.stdout)
+        self.assertFalse((self.vault / BETA).exists())
+        renamed = self.vault / "Clippings/beta-article.md"
+        self.assertEqual(before, renamed.read_bytes())
+        page = (self.vault / "Wiki/sources/beta-the-sequel.md").read_text()
+        self.assertIn('source_path: "Clippings/beta-article.md"', page)
+        self.assertIn("[[Clippings/beta-article|Original note]]", page)
+
+    def test_source_hash_is_the_hash_before_the_rename(self) -> None:
+        digest = sha256(self.vault / BETA)
+        self.v("scaffold-source.py", BETA)
+        page = (self.vault / "Wiki/sources/beta-the-sequel.md").read_text()
+        self.assertIn(f'source_hash: "{digest}"', page)
+        self.assertEqual(sha256(self.vault / "Clippings/beta-article.md"), digest)
+        out = json.loads(self.v("check-sources.py", "--json").stdout)
+        self.assertEqual(out["new"], [])
+        self.assertEqual(out["renamed"], [])
+
+    def test_a_name_that_is_already_a_slug_stays(self) -> None:
+        keep = self.vault / "Clippings/already-a-slug.md"
+        keep.write_text('---\ntitle: "Already a slug"\n---\nBody\n', encoding="utf-8")
+        r = self.v("scaffold-source.py", "Clippings/already-a-slug.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("renamed", r.stdout)
+        self.assertTrue(keep.is_file())
+
+    def test_a_capture_is_never_renamed(self) -> None:
+        capture = self.vault / "Twitter-Captures/tools/Spaced Capture.md"
+        capture.write_text('---\ntitle: "Spaced"\n---\nBody\n', encoding="utf-8")
+        r = self.v("scaffold-source.py", "Twitter-Captures/tools/Spaced Capture.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(capture.is_file())
+
+    def test_refuses_when_the_new_name_is_taken(self) -> None:
+        taken = self.vault / "Clippings/beta-article.md"
+        taken.write_text("Another clipping.\n", encoding="utf-8")
+        r = self.v("scaffold-source.py", BETA)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("cannot rename Clippings/Beta Article.md to beta-article.md", r.stderr)
+        self.assertIn("Clippings/beta-article.md", r.stderr)
+        self.assertIn("--clip-slug", r.stderr)
+        self.assertTrue((self.vault / BETA).is_file())
+        self.assertFalse((self.vault / "Wiki/sources/beta-the-sequel.md").exists())
+
+    def test_clip_slug_chooses_the_name(self) -> None:
+        (self.vault / "Clippings/beta-article.md").write_text("Another clipping.\n", encoding="utf-8")
+        r = self.v("scaffold-source.py", BETA, "--clip-slug", "beta-the-sequel-clip")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.vault / "Clippings/beta-the-sequel-clip.md").is_file())
+        page = (self.vault / "Wiki/sources/beta-the-sequel.md").read_text()
+        self.assertIn('source_path: "Clippings/beta-the-sequel-clip.md"', page)
+
+    def test_clip_slug_must_be_a_slug(self) -> None:
+        r = self.v("scaffold-source.py", BETA, "--clip-slug", "Not A Slug")
+        self.assertEqual(r.returncode, 2)
+        self.assertTrue((self.vault / BETA).is_file())
+
+    def test_warns_when_a_wiki_page_has_the_same_name(self) -> None:
+        (self.vault / "Wiki/concepts/beta-article.md").write_text("x\n", encoding="utf-8")
+        r = self.v("scaffold-source.py", BETA)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("beta-article.md has the same note name as Wiki/concepts/beta-article.md", r.stderr)
+
+    def test_warns_when_the_new_source_page_has_the_same_name(self) -> None:
+        r = self.v("scaffold-source.py", BETA, "--slug", "beta-article")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("same note name as the new page Wiki/sources/beta-article.md", r.stderr)
+
+    def test_a_hand_renamed_clipping_is_renamed_not_new(self) -> None:
+        (self.vault / "Clippings/Alpha Article.md").rename(self.vault / "Clippings/alpha.md")
+        data = json.loads(self.v("check-sources.py", "--json").stdout)
+        self.assertEqual([i["source"] for i in data["new"]], [BETA])
+        self.assertEqual(
+            [(i["source"], i["was"]) for i in data["renamed"]],
+            [("Clippings/alpha.md", "Clippings/Alpha Article.md")],
+        )
+        text = self.v("check-sources.py").stdout
+        self.assertIn("renamed:  Clippings/alpha.md  <-  Clippings/Alpha Article.md", text)
+        self.assertNotIn("new:      Clippings/alpha.md", text)
+        queue = self.v("rebuild-index.py")
+        self.assertNotIn("alpha.md | new", (self.vault / "Wiki/index.md").read_text(), queue.stdout)
+        found = self.v("validate-wiki.py", "--pages-only").stdout
+        self.assertIn("the same content is at Clippings/alpha.md, so set `source_path` to it", found)
+
+    def test_validate_warns_about_a_clipping_that_is_not_a_slug(self) -> None:
+        out = self.v("validate-wiki.py", "--pages-only").stdout
+        self.assertIn("2 clipping(s) have a file name that is not a slug; run slug-clippings.py", out)
+        self.v("scaffold-source.py", BETA)
+        scoped = self.v("validate-wiki.py", "--pages-only", "--source", "beta-the-sequel").stdout
+        self.assertNotIn("not a slug", scoped)
 
 
 class NewPages(VaultCase):
@@ -405,6 +536,168 @@ class Migrate(VaultCase):
         self.assertTrue((self.vault / "Wiki/concepts/llm-output-concept.md").is_file())
         idea = (self.vault / "Ideas/an-idea.md").read_text()
         self.assertIn("[[llm-output-concept|Understanding LLM Output]]", idea)
+
+
+BACKFILL_FILES = {
+    "Ideas/an-idea.md": "See [[Clippings/Beta Article|the sequel]] and [[Alpha Article]].\n",
+    "Inbox/Tasks.md": "| Clip | Note |\n|---|---|\n| [[Clippings/Alpha Article]] | x |\n",
+    "Clippings/Beta Article.md": None,  # keep the fixture content
+    "Clippings/Link Holder.md": "A raw note that links [[Clippings/Beta Article]].\n",
+}
+
+
+LONG_TITLE = "Long clipping title " * 6  # a 114-character slug
+LONG_SLUG = "-".join(["long-clipping-title"] * 4)  # 79 characters
+
+
+class ClippingCap(VaultCase):
+    def test_ingest_caps_the_clipping_name(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text('---\ntitle: "Capped"\n---\nBody\n', encoding="utf-8")
+        r = self.v("scaffold-source.py", f"Clippings/{LONG_TITLE}.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.vault / f"Clippings/{LONG_SLUG}.md").is_file())
+        self.assertIn(f'source_path: "Clippings/{LONG_SLUG}.md"', (self.vault / "Wiki/sources/capped.md").read_text())
+
+    def test_ingest_refuses_when_the_cut_name_is_taken(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text("Long.\n", encoding="utf-8")
+        (self.vault / f"Clippings/{LONG_SLUG}.md").write_text("Taken.\n", encoding="utf-8")
+        r = self.v("scaffold-source.py", f"Clippings/{LONG_TITLE}.md")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(f"{LONG_SLUG}.md", r.stderr)
+
+    def test_backfill_caps_and_refuses_two_cut_names_that_collide(self) -> None:
+        for suffix in ("one", "two"):
+            (self.vault / f"Clippings/{LONG_TITLE}{suffix}.md").write_text(suffix, encoding="utf-8")
+        r = self.v("slug-clippings.py", "--dry-run")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"Clippings/{LONG_SLUG}.md", r.stdout)
+        self.assertIn("collision(s)", r.stdout)
+        ok = self.v("slug-clippings.py", "--clip-slug", f"{LONG_TITLE}one=one", "--clip-slug", f"{LONG_TITLE}two=two")
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+
+    def test_backfill_cuts_a_long_name_and_leaves_a_capped_name_alone(self) -> None:
+        (self.vault / f"Clippings/{LONG_TITLE}.md").write_text("Long.\n", encoding="utf-8")
+        self.assertEqual(self.v("slug-clippings.py").returncode, 0)
+        self.assertTrue((self.vault / f"Clippings/{LONG_SLUG}.md").is_file())
+        again = self.v("slug-clippings.py")
+        self.assertIn("Nothing to do", again.stdout)
+
+
+class Backfill(VaultCase):
+    def setUp(self) -> None:
+        super().setUp()
+        for rel, text in BACKFILL_FILES.items():
+            if text is not None:
+                path = self.vault / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+        self.raw = {p: (self.vault / p).read_bytes() for p in ("Clippings/Alpha Article.md", BETA)}
+
+    def tree(self) -> dict[str, bytes]:
+        return {p.relative_to(self.vault).as_posix(): p.read_bytes() for p in self.vault.rglob("*") if p.is_file()}
+
+    def test_dry_run_prints_the_plan_and_writes_nothing(self) -> None:
+        before = self.tree()
+        r = self.v("slug-clippings.py", "--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Rename map (3 clipping(s))", r.stdout)
+        self.assertIn("Clippings/Alpha Article.md -> Clippings/alpha-article.md", r.stdout)
+        self.assertIn("Clippings/Link Holder.md -> Clippings/link-holder.md", r.stdout)
+        self.assertIn("Source pages to change (1)", r.stdout)
+        self.assertIn("Wiki/sources/alpha-article.md: source_path Clippings/Alpha Article.md", r.stdout)
+        self.assertIn("Ideas/an-idea.md: 2", r.stdout)
+        self.assertIn("Inbox/Tasks.md: 1", r.stdout)
+        self.assertIn("Clippings/Link Holder.md: 1", r.stdout)  # a link the script does not edit
+        self.assertIn("Name clashes with notes in other folders (1)", r.stdout)
+        self.assertIn("Wiki/sources/alpha-article.md", r.stdout)
+        self.assertIn("No collisions. Dry run: nothing written.", r.stdout)
+        self.assertEqual(before, self.tree())
+
+    def test_real_run_renames_and_rewrites(self) -> None:
+        r = self.v("slug-clippings.py")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((self.vault / "Clippings/Alpha Article.md").exists())
+        self.assertEqual(
+            self.raw["Clippings/Alpha Article.md"], (self.vault / "Clippings/alpha-article.md").read_bytes()
+        )
+        self.assertEqual(self.raw[BETA], (self.vault / "Clippings/beta-article.md").read_bytes())
+        self.assertEqual(
+            "A raw note that links [[Clippings/Beta Article]].\n",
+            (self.vault / "Clippings/link-holder.md").read_text(),
+        )
+
+        page = (self.vault / "Wiki/sources/alpha-article.md").read_text()
+        self.assertIn('source_path: "Clippings/alpha-article.md"', page)
+        self.assertIn("[[Clippings/alpha-article|Original note]]", page)
+        self.assertIn(f'source_hash: "{sha256(self.vault / "Clippings/alpha-article.md")}"', page)
+
+        idea = (self.vault / "Ideas/an-idea.md").read_text()
+        self.assertIn("[[Clippings/beta-article|the sequel]]", idea)
+        self.assertIn("[[alpha-article|Alpha Article]]", idea)
+        self.assertIn(
+            "| [[Clippings/alpha-article\\|Alpha Article]] | x |", (self.vault / "Inbox/Tasks.md").read_text()
+        )
+
+        log = (self.vault / "Wiki/log.md").read_text()
+        self.assertIn("migrate | Slug clipping names", log)
+        self.assertIn("- Renamed: 3 clippings", log)
+        self.assertIn("Clippings/alpha-article.md", (self.vault / "Wiki/index.md").read_text())
+        self.assertEqual(self.v("rebuild-index.py", "--check").returncode, 0)
+
+        out = self.v("check-sources.py", "--json").stdout
+        data = json.loads(out)
+        self.assertEqual([i["source"] for i in data["new"]], ["Clippings/beta-article.md", "Clippings/link-holder.md"])
+        self.assertEqual((data["changed"][0]["source"], data["renamed"]), ("Twitter-Captures/tools/gamma.md", []))
+        self.assertEqual(data["unchanged_count"], 1)
+        checked = self.v("validate-wiki.py", "--pages-only")
+        self.assertNotIn("Clippings", checked.stdout)
+        self.assertNotIn("alpha", checked.stdout)
+
+    def test_uses_git_mv_in_a_repository(self) -> None:
+        git = ["git", "-C", str(self.vault), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        self.assertEqual(self.v("slug-clippings.py").returncode, 0)
+        status = subprocess.run([*git, "status", "--short"], capture_output=True, text=True).stdout
+        self.assertRegex(status, r"(?m)^R.? +\"?Clippings/Alpha Article\.md\"? -> Clippings/alpha-article\.md")
+
+    def test_second_run_does_nothing(self) -> None:
+        self.v("slug-clippings.py")
+        before = self.tree()
+        r = self.v("slug-clippings.py")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Nothing to do", r.stdout)
+        self.assertEqual(before, self.tree())
+
+    def test_refuses_on_a_collision_and_writes_nothing(self) -> None:
+        (self.vault / "Clippings/alpha-article.md").write_text("Taken.\n", encoding="utf-8")
+        (self.vault / "Clippings/Alpha-Article!.md").write_text("Same slug.\n", encoding="utf-8")
+        before = self.tree()
+        r = self.v("slug-clippings.py")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("collision(s)", r.stdout)
+        self.assertIn("Clippings/alpha-article.md", r.stdout)
+        self.assertIn("Clippings/Alpha-Article!.md", r.stdout)
+        self.assertEqual(before, self.tree())
+
+    def test_clip_slug_settles_a_collision(self) -> None:
+        (self.vault / "Clippings/alpha-article.md").write_text("Taken.\n", encoding="utf-8")
+        r = self.v("slug-clippings.py", "--clip-slug", "Alpha Article=alpha-clip")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.raw["Clippings/Alpha Article.md"], (self.vault / "Clippings/alpha-clip.md").read_bytes())
+        page = (self.vault / "Wiki/sources/alpha-article.md").read_text()
+        self.assertIn('source_path: "Clippings/alpha-clip.md"', page)
+
+    def test_clip_slug_must_be_a_slug(self) -> None:
+        self.assertEqual(self.v("slug-clippings.py", "--clip-slug", "Alpha Article=Not A Slug").returncode, 2)
+
+    def test_a_name_over_the_file_name_limit_is_a_collision(self) -> None:
+        old = self.vault / "Clippings/Alpha Article.md"
+        new = self.vault / ("Clippings/" + "word-" * 60 + ".md")
+        collisions, _ = clips.check_targets(self.vault, [(old, new)])
+        self.assertEqual(len(collisions), 1)
+        self.assertIn("name is longer than 255 bytes", next(iter(collisions)))
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ TYPE_TAG = {
 INDEX_SECTIONS = ("sources", "entities", "concepts", "synthesis", "unprocessed")
 PLACEHOLDER = "TODO(ingest)"
 SLUG_LIMIT = 60
+CLIP_SLUG_LIMIT = 80  # a clipping file name is at most this long before `.md`
 
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 # A wikilink alias is set off by `|`. Inside a Markdown table it is written `\|`.
@@ -115,11 +116,16 @@ def sha256_file(path: Path) -> str:
 def slugify(text: str, limit: int | None = SLUG_LIMIT, fallback: str = "untitled") -> str:
     """Return a lowercase ASCII kebab-case slug.
 
-    Accents fold to their base letter. Every other run of characters outside
+    Apostrophes (`'` and `’`) are deleted, so `AI's` gives `ais`. Accents fold
+    to their base letter. Every other run of characters outside
     `a-z0-9` becomes one hyphen. `limit` cuts at a word boundary; `None` keeps
     the whole slug.
     """
-    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    folded = (
+        unicodedata.normalize("NFKD", text.replace("'", "").replace("\u2019", ""))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
     slug = re.sub(r"[^a-z0-9]+", "-", folded.casefold()).strip("-")
     if limit is not None and len(slug) > limit:
         slug = slug[:limit].rsplit("-", 1)[0]
@@ -132,6 +138,26 @@ def page_slug(title: str) -> str:
     Page slugs are never cut short, so two long titles do not collide by truncation.
     """
     return slugify(title, limit=None, fallback="")
+
+
+def clip_slug(stem: str) -> str:
+    """Return the file stem for a clipping: its page slug, cut to `CLIP_SLUG_LIMIT` characters.
+
+    The cut is at the last hyphen at or before the limit, so no word is split
+    and no hyphen is left at the end. A name with no hyphen is cut at the limit.
+    Wiki page slugs are never cut. Only clippings use this.
+    """
+    slug = page_slug(stem)
+    if len(slug) <= CLIP_SLUG_LIMIT:
+        return slug
+    head = slug[: CLIP_SLUG_LIMIT + 1]
+    cut = head.rfind("-")
+    return (head[:cut] if cut > 0 else head[:CLIP_SLUG_LIMIT]).rstrip("-")
+
+
+def needs_slug(stem: str) -> bool:
+    """Tell whether a clipping file stem differs from its clipping slug, so ingest renames it."""
+    return stem != clip_slug(stem)
 
 
 def normalize(name: str) -> str:
@@ -275,15 +301,31 @@ def classify(vault: Path) -> dict:
     The rule matches the retired `vault-status.sh`: a raw file is new when no
     source page names it in `source_path`, and changed when the page's
     `source_hash` differs from the file's SHA-256. A page with no hash counts as
-    changed so a backfill is visible.
+    changed so a backfill is visible. A raw file with no page is `renamed`, not
+    new, when its hash equals the `source_hash` of a page whose own raw file is
+    gone. That page needs a new `source_path`, not a new ingest.
     """
     indexed = source_pages(vault)
-    new, changed, unchanged = [], [], 0
-    for rel in raw_sources(vault):
+    raw = raw_sources(vault)
+    present = set(raw)
+    # A page whose raw file is gone may point at a file that was renamed.
+    orphans: dict[str, list[Page]] = {}
+    for path, page in indexed.items():
+        if path not in present and page.fm.get("source_hash"):
+            orphans.setdefault(str(page.fm["source_hash"]), []).append(page)
+    new, changed, renamed, unchanged = [], [], [], 0
+    for rel in raw:
         digest = sha256_file(vault / rel)
         page = indexed.get(rel)
         if page is None:
-            new.append({"source": rel, "sha256": digest})
+            moved_from = orphans.get(digest)
+            if moved_from:
+                old = moved_from.pop(0)
+                renamed.append(
+                    {"source": rel, "sha256": digest, "page": old.path.stem, "was": str(old.fm["source_path"])}
+                )
+            else:
+                new.append({"source": rel, "sha256": digest})
             continue
         recorded = page.fm.get("source_hash")
         if not recorded:
@@ -294,7 +336,7 @@ def classify(vault: Path) -> dict:
             unchanged += 1
             continue
         changed.append({"source": rel, "sha256": digest, "page": page.path.stem, "reason": reason})
-    return {"new": new, "changed": changed, "unchanged_count": unchanged}
+    return {"new": new, "changed": changed, "renamed": renamed, "unchanged_count": unchanged}
 
 
 # --- links and the log ----------------------------------------------------------
