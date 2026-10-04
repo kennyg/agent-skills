@@ -15,7 +15,7 @@ Run a health check on the wiki and report findings. Read CLAUDE.md for vault-spe
 <skill-dir>/scripts/lint-wiki.py "$CLAUDE_PROJECT_DIR"
 ```
 
-This scans all wiki pages and reports broken wikilinks, orphan pages, index drift, missing pages (referenced 2+ times), and unprocessed sources.
+This scans all wiki pages and reports broken wikilinks, page file names with a space, index drift, links that match an alias instead of a file name, orphan pages, missing pages (referenced 2+ times), and unprocessed sources.
 
 ### 2. Review the output
 
@@ -24,6 +24,10 @@ The script groups findings by severity. Read the output and plan fixes.
 ### 3. Check for issues
 
 **Broken wikilinks** — links to pages that don't exist in the wiki.
+
+**Page file names with a space** — every wiki page file name is a lowercase kebab-case slug. For example, `MCP (Model Context Protocol)` lives in `mcp-model-context-protocol.md`. Fix with `migrate-slugs.py` from the `wiki-ingest` skill (`--dry-run` first).
+
+**Alias-only links** — a link such as `[[Old Title]]` that matches a page's `aliases` but not a file name. Obsidian does not open these. Rewrite them as `[[slug|Title]]`.
 
 **Orphan pages** — wiki pages with no inbound links from other wiki pages.
 
@@ -44,13 +48,13 @@ The script groups findings by severity. Read the output and plan fixes.
 ### 4. Report findings
 
 Present findings grouped by severity:
-- **Errors** — broken links, index drift (fix immediately)
-- **Warnings** — orphans, stale pages, missing pages (recommend fixes)
+- **Errors** — broken links, file names with a space, index drift (fix immediately)
+- **Warnings** — alias-only links, orphans, stale pages, missing pages (recommend fixes)
 - **Info** — low source counts, potential merges, new questions to investigate
 
 ### 5. Fix with permission
 
-Offer to fix errors and warnings. Ask before making large changes. For missing pages, offer to create stubs.
+Offer to fix errors and warnings. Ask before making large changes. For missing pages, offer to create stubs with `wiki-pages.py new` from the `wiki-ingest` skill. It writes the slug file name and the `title` and `aliases` keys.
 
 ### 6. Log the lint
 
@@ -60,6 +64,7 @@ Append to `Wiki/log.md`:
 ## [YYYY-MM-DD] lint | Health check
 
 - Broken links found: N (fixed: N)
+- File names with a space: N (fixed: N)
 - Orphan pages: N
 - Stale pages: N
 - Missing pages: N (created stubs: N)

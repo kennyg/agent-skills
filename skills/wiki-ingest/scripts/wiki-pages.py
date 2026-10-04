@@ -7,12 +7,17 @@
 
 Commands:
     list [entities|concepts] [--json]
-        Print every page with its kind or confidence, `source_count` and aliases.
+        Print every page slug with its title, kind or confidence, `source_count` and aliases.
     find NAME... [--json]
         Resolve each name against page names, titles and `aliases`. The match
         ignores case and punctuation. Print `exists` or `new` for each name.
-    new entity|concept NAME --source SLUG [--kind KIND] [--confidence LEVEL] [--alias A]...
-        Create a page with correct frontmatter and `source_count: 1`.
+    new entity|concept NAME --source SLUG [--kind KIND] [--confidence LEVEL] [--alias A]... [--slug SLUG]
+        Create `<slug>.md` for the title NAME, with correct frontmatter and
+        `source_count: 1`. The slug is the lowercase kebab-case form of NAME.
+        Pass `--slug` to pick another slug when a page in `Wiki/` already uses
+        that file name. A file name must be unique, because a link finds a page
+        by file name.
+        `title` holds NAME, and `aliases` lists NAME and every `--alias`.
     bump NAME --source SLUG --mention TEXT
         Add 1 to `source_count`, set `date_updated` to today, and append the
         bullet `- [[SLUG]] - TEXT` to the page's Mentions (entity) or Sources
@@ -42,7 +47,7 @@ SPEC = {
     "entity": {
         "folder": "entities",
         "list_heading": "Mentions",
-        "sections": "## Mentions\n\n- [[{slug}]] - {todo} what this source says about it\n\n## Related\n\n- {todo} [[Related page]]\n",
+        "sections": "## Mentions\n\n- [[{slug}]] - {todo} what this source says about it\n\n## Related\n\n- {todo} [[page-slug|Related page]]\n",
         "intro": "{todo} One or two factual sentences.\n\n",
     },
     "concept": {
@@ -50,7 +55,7 @@ SPEC = {
         "list_heading": "Sources",
         "sections": (
             "## Key Insights\n\n- {todo} Insight (from [[{slug}]])\n\n## Sources\n\n"
-            "- [[{slug}]] - {todo} what it adds\n\n## Related Concepts\n\n- {todo} [[Related page]]\n"
+            "- [[{slug}]] - {todo} what it adds\n\n## Related Concepts\n\n- {todo} [[page-slug|Related page]]\n"
         ),
         "intro": "## Definition\n\n{todo} What the concept is.\n\n",
     },
@@ -96,7 +101,9 @@ def cmd_list(vault: Path, args) -> int:
         return 0
     for row in rows:
         aliases = f"  aliases: {', '.join(row['aliases'])}" if row["aliases"] else ""
-        print(f"{row['type']:8} {row['name']}  [{row['kind']}]  sources={row['source_count']}{aliases}")
+        print(
+            f'{row["type"]:8} {row["name"]}  "{row["title"]}"  [{row["kind"]}]  sources={row["source_count"]}{aliases}'
+        )
     return 0
 
 
@@ -110,6 +117,7 @@ def cmd_find(vault: Path, args) -> int:
                 "query": name,
                 "status": "exists" if row else "new",
                 "page": row["name"] if row else None,
+                "link": wl.wikilink(row["name"], row["title"]) if row else None,
                 "type": row["type"] if row else None,
             }
         )
@@ -118,7 +126,7 @@ def cmd_find(vault: Path, args) -> int:
         return 0
     for item in results:
         if item["status"] == "exists":
-            print(f"exists  {item['query']}  ->  [[{item['page']}]] ({item['type']})")
+            print(f"exists  {item['query']}  ->  {item['link']} ({item['type']})")
         else:
             print(f"new     {item['query']}")
     return 0
@@ -127,9 +135,19 @@ def cmd_find(vault: Path, args) -> int:
 def cmd_new(vault: Path, args) -> int:
     spec = SPEC[args.type]
     existing = lookup(inventory(vault)).get(wl.normalize(args.name))
-    target = vault / "Wiki" / spec["folder"] / f"{args.name}.md"
-    if existing or target.exists():
-        print(f"error: [[{existing['name'] if existing else args.name}]] already exists; use `bump`", file=sys.stderr)
+    title = args.name.strip()
+    slug = args.slug or wl.page_slug(title)
+    if not slug or wl.slugify(slug, limit=None, fallback="") != slug:
+        print(f"error: {slug or title!r} is not a lowercase ASCII slug; pass --slug", file=sys.stderr)
+        return 2
+    target = vault / "Wiki" / spec["folder"] / f"{slug}.md"
+    if existing:
+        print(f"error: [[{existing['name']}]] already exists; use `bump`", file=sys.stderr)
+        return 2
+    clash = next((p for p in (vault / "Wiki").rglob(f"{slug}.md")), None)
+    if clash:
+        where = clash.relative_to(vault).as_posix()
+        print(f"error: {where} already uses the file name {slug}.md; pass --slug with another slug", file=sys.stderr)
         return 2
     if not wl.source_page_path(vault, args.source).is_file():
         print(f"error: no source page {args.source}", file=sys.stderr)
@@ -148,19 +166,20 @@ def cmd_new(vault: Path, args) -> int:
         order = ("title", "dates", "count", "extra")
     date = wl.today()
     parts = {
-        "title": f"title: {wl.quote(args.name)}\n",
+        "title": f"title: {wl.quote(title)}\n",
         "extra": extra,
         "dates": f"date_created: {date}\ndate_updated: {date}\n",
         "count": "source_count: 1\n",
     }
-    aliases = "aliases:\n" + "".join(f"  - {wl.quote(a)}\n" for a in args.alias) if args.alias else ""
+    names = list(dict.fromkeys([title, *args.alias]))
+    aliases = "aliases:\n" + "".join(f"  - {wl.quote(a)}\n" for a in names)
     head = (
         f"---\ntype: {args.type}\n{''.join(parts[k] for k in order)}{aliases}tags:\n  - {wl.TYPE_TAG[args.type]}\n---\n"
     )
     fields = {"slug": args.source, "todo": wl.PLACEHOLDER}
-    body = f"\n# {args.name}\n\n{spec['intro'].format(**fields)}{spec['sections'].format(**fields)}"
+    body = f"\n# {title}\n\n{spec['intro'].format(**fields)}{spec['sections'].format(**fields)}"
     target.write_text(head + body, encoding="utf-8")
-    print(f"created {target.relative_to(vault).as_posix()}")
+    print(f"created {target.relative_to(vault).as_posix()}  link={wl.wikilink(slug, title)}")
     return 0
 
 
@@ -213,6 +232,7 @@ def main() -> int:
     p_new.add_argument("--kind", help="entity kind: " + ", ".join(ENTITY_KINDS))
     p_new.add_argument("--confidence", help="concept confidence: " + ", ".join(CONFIDENCE))
     p_new.add_argument("--alias", action="append", default=[])
+    p_new.add_argument("--slug", help="file name stem; default is the slug of NAME")
 
     p_bump = sub.add_parser("bump", help="count one more source on an existing page")
     p_bump.add_argument("name")

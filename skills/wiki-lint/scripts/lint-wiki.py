@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml>=6"]
 # ///
 """Health check for an LLM wiki in an Obsidian vault.
 
@@ -14,7 +14,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import yaml
+
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+# An alias is set off by `|`. Inside a Markdown table it is written `\|`.
+ALIAS_SEP_RE = re.compile(r"\\?\|")
 # Obsidian renders wikilinks inside code as literal text, not links. Strip code
 # before extracting so quoted/example links (and Dataview queries) aren't
 # reported as broken.
@@ -29,6 +33,24 @@ RAW_DIRS = ["Clippings", "Twitter-Captures/tools", "Twitter-Captures/articles"]
 def find_wiki_pages(wiki: Path) -> dict[str, Path]:
     """Map page name -> file path for all wiki .md files."""
     return {f.stem: f for f in wiki.rglob("*.md")}
+
+
+def find_aliases(pages: dict[str, Path]) -> dict[str, str]:
+    """Map each casefolded `aliases` entry to the page stem. A link to an alias does not open the page."""
+    found: dict[str, str] = {}
+    for stem, path in pages.items():
+        text = path.read_text(errors="replace")
+        if not text.startswith("---"):
+            continue
+        try:
+            fm = yaml.safe_load(text.split("---", 2)[1])
+        except (yaml.YAMLError, IndexError):
+            continue
+        raw = fm.get("aliases") if isinstance(fm, dict) else None
+        for alias in raw if isinstance(raw, list) else [raw]:
+            if alias:
+                found.setdefault(str(alias).casefold(), stem)
+    return found
 
 
 def find_vault_files(vault: Path) -> set[str]:
@@ -53,7 +75,7 @@ def extract_wikilinks(wiki: Path) -> list[tuple[str, str]]:
         text = strip_code(f.read_text(errors="replace"))
         for m in WIKILINK_RE.finditer(text):
             raw = m.group(1)
-            target = raw.split("|")[0].split("#")[0].strip()
+            target = ALIAS_SEP_RE.split(raw, maxsplit=1)[0].split("#")[0].strip()
             if target:
                 links.append((target, f.stem))
     return links
@@ -84,12 +106,14 @@ def main():
         sys.exit(1)
 
     pages = find_wiki_pages(wiki)
+    aliases = find_aliases(pages)
     vault_files = find_vault_files(vault)
     links = extract_wikilinks(wiki)
 
     # --- Broken wikilinks ---
     link_counts: Counter = Counter()
     broken: set[str] = set()
+    alias_only: Counter = Counter()
     for target, _source in links:
         # Resolve: wiki page? vault file? basename? (also strip .md suffix)
         if target in pages:
@@ -102,6 +126,9 @@ def main():
             continue
         if target in vault_files or target_no_ext in vault_files:
             continue
+        if target.casefold() in aliases:
+            alias_only[target] += 1
+            continue
         broken.add(target)
         link_counts[target] += 1
 
@@ -110,6 +137,7 @@ def main():
     inbound: Counter = Counter()
     for target, source in links:
         resolved = target if target in pages else (Path(target).name if Path(target).name in pages else None)
+        resolved = resolved or aliases.get(target.casefold())
         if resolved and resolved != source:
             inbound[resolved] += 1
 
@@ -117,7 +145,14 @@ def main():
 
     # --- Index drift ---
     index_text = (wiki / "index.md").read_text(errors="replace") if (wiki / "index.md").exists() else ""
-    drift = [p for p in pages if p not in STRUCTURAL and f"[[{p}]]" not in index_text and f"[[{p}|" not in index_text]
+    drift = [
+        p
+        for p in pages
+        if p not in STRUCTURAL and not any(f"[[{p}{end}" in index_text for end in ("]]", "|", "\\|", "#"))
+    ]
+
+    # --- Page names with spaces ---
+    spaced = sorted(str(f.relative_to(vault)) for f in wiki.rglob("*.md") if " " in f.name)
 
     # --- Unprocessed sources ---
     raw_sources = find_raw_sources(vault)
@@ -137,8 +172,14 @@ def main():
     print(f"Index drift: {len(drift)}")
     for d in sorted(drift):
         print(f"  - {d}")
+    print(f"Page file names with a space (run migrate-slugs.py from wiki-ingest): {len(spaced)}")
+    for s in spaced:
+        print(f"  - {s}")
     print()
     print("## Warnings")
+    print(f"Links that match an alias, not a file name: {len(alias_only)}")
+    for a in sorted(alias_only, key=lambda k: -alias_only[k]):
+        print(f"  - {a} ({alias_only[a]}x) -> [[{aliases[a.casefold()]}|{a}]]")
     print(f"Orphan pages: {len(orphans)}")
     for o in sorted(orphans):
         print(f"  - {o}")

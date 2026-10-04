@@ -17,7 +17,7 @@ Every script lives in `<skill-dir>/scripts/` and runs directly. Each one finds t
 |---|---|
 | `check-sources.py` | Lists raw sources that are new or changed, each with its SHA-256. |
 | `scaffold-source.py` | Creates `Wiki/sources/<slug>.md` with the slug, frontmatter, `source_hash` and `date_ingested` filled. |
-| `wiki-pages.py` | Lists and finds entity and concept pages, creates new ones, and bumps `source_count`. |
+| `wiki-pages.py` | Lists and finds entity and concept pages, creates new ones with a slug file name, and bumps `source_count`. |
 | `rebuild-index.py` | Regenerates the `Wiki/index.md` tables. |
 | `update-overview.py` | Refreshes the counts in `Wiki/overview.md`. |
 | `log-entry.py` | Appends the ingest entry to `Wiki/log.md`. |
@@ -26,6 +26,17 @@ Every script lives in `<skill-dir>/scripts/` and runs directly. Each one finds t
 | `finalize-ingest.py` | Runs the index, overview, log, search refresh and validation steps in order. |
 | `commit-ingest.py` | Commits one source with a fixed message. |
 | `backfill-hashes.py` | Adds `source_hash` to old source pages. Run once per old wiki. |
+| `migrate-slugs.py` | Renames wiki pages with a space in the file name to slugs and rewrites the links to them. Run once per old wiki. |
+
+## Page names
+
+Every wiki page file name is a slug. It has no spaces.
+
+- The file name is the lowercase kebab-case slug of the page title. It uses ASCII only. Punctuation is dropped. A run of separators becomes one hyphen. `MCP (Model Context Protocol)` is `mcp-model-context-protocol.md`. `Exploration-Exploitation Trade-off` is `exploration-exploitation-trade-off.md`.
+- The frontmatter keeps the title in `title:` and lists it in `aliases:`. Search and link suggestions in Obsidian find the page by title.
+- Write a link as `[[slug|Title]]`. In a Markdown table, write `[[slug\|Title]]`. A link to an alias does not open the page, so always link the slug.
+- One file name belongs to one page. `wiki-pages.py new` stops when a page in `Wiki/` already uses the slug. Pass `--slug` to pick another one.
+- `Wiki/index.md`, the overview and the log use the same link form. The scripts write it.
 
 ## Workflow
 
@@ -57,13 +68,13 @@ Read the raw file in full. Never modify it. Replace every `TODO(ingest)` marker 
 
 - a summary of two or three factual paragraphs;
 - the key claims, one per bullet;
-- the entities and concepts the source names, as `[[wikilinks]]`.
+- the entities and concepts the source names, as `[[slug|Title]]` wikilinks. Get each slug from `wiki-pages.py find`.
 
 Add topic tags to the frontmatter `tags` list. Keep `wiki/source`. Keep the summary factual. Interpretation belongs on concept pages.
 
 ### 4. Choose entities and concepts
 
-Check which pages exist. The match uses page names, titles and `aliases`:
+Check which pages exist. The match uses slugs, titles and `aliases`. For a page that exists, `find` prints the link to use:
 
 ```bash
 <skill-dir>/scripts/wiki-pages.py list
@@ -83,7 +94,7 @@ For a page that does not exist, create it, then replace its `TODO(ingest)` marke
 <skill-dir>/scripts/wiki-pages.py new concept "<name>" --confidence medium --source <slug>
 ```
 
-Entity kinds are `person`, `tool`, `org`, `repo` and `standard`. When the source contradicts a concept page, write the contradiction on that page. Do not overwrite the old claim.
+`new` writes `Wiki/<folder>/<slug>.md` with `title` and `aliases` set. Use `--alias` for other names the page goes by. Entity kinds are `person`, `tool`, `org`, `repo` and `standard`. When the source contradicts a concept page, write the contradiction on that page. Do not overwrite the old claim.
 
 ### 5. Finalize
 
@@ -112,7 +123,30 @@ Tell the user which pages the ingest created and which it updated. Copy them fro
 
 - NEVER modify raw source files.
 - NEVER edit the generated tables in `Wiki/index.md` by hand.
-- Use `[[wikilinks]]` in all wiki pages.
+- Use `[[slug|Title]]` wikilinks in all wiki pages. Never create a wiki page file name with a space.
 - Every page has `type:` in frontmatter and a `wiki/*` tag.
 - Use `[key::value]` inline metadata for Dataview fields.
 - Keep the `<!-- BEGIN:x -->` and `<!-- END:x -->` markers in `Wiki/index.md`.
+
+## Migrate old page names
+
+An older wiki has pages with a space in the file name, such as `Wiki/concepts/Understanding LLM Output.md`. `validate-wiki.py` reports each one as an error. Run the migration once, on a clean git tree:
+
+```bash
+<skill-dir>/scripts/migrate-slugs.py --dry-run
+<skill-dir>/scripts/migrate-slugs.py
+```
+
+The dry run prints the rename map, the link count per file, and any collision. It writes nothing.
+
+The real run does five things:
+
+1. Renames each page with `git mv`.
+2. Adds `title` and `aliases` where they are missing. `aliases` also lists the old file name.
+3. Rewrites each link to a renamed page in `Wiki/`, `Ideas/` and `Inbox/` as `[[slug|Title]]`. A link keeps its display text and its `#heading` or `^block` suffix. An embed keeps its own form. Links in code stay as they are.
+4. Rebuilds the tables in `Wiki/index.md`.
+5. Appends an entry to `Wiki/log.md`.
+
+The script never writes `Clippings/` or `Twitter-Captures/`. A link there to a renamed page stops opening, because Obsidian does not resolve a link through `aliases`. The dry run lists these links.
+
+The script stops with exit code 1 when two titles give one slug, or when a slug matches the name of another note. Pass `--slug "Old file name=new-slug"` once per page to choose a different slug. Run `validate-wiki.py` after the migration, then commit.

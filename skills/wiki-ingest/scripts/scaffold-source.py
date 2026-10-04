@@ -78,11 +78,11 @@ tags:
 
 ## Entities Mentioned
 
-- {TODO} [[Entity name]] - one line on its role in this source
+- {TODO} [[entity-slug|Entity name]] - one line on its role in this source
 
 ## Concepts Touched
 
-- {TODO} [[Concept name]] - one line on how this source bears on it
+- {TODO} [[concept-slug|Concept name]] - one line on how this source bears on it
 
 ## Raw Source
 
