@@ -41,7 +41,8 @@ def table(header: list[str], rows: list[list[str]]) -> str:
 
 
 def link(page: wl.Page) -> str:
-    return f"[[{page.path.stem}]]"
+    """Link for a table cell: `[[slug\\|Title]]`."""
+    return wl.page_link(page, table=True)
 
 
 def build_sources(vault: Path) -> str:
@@ -222,8 +223,8 @@ def write_overview(vault: Path) -> tuple[bool, list[str]]:
 # --- log ------------------------------------------------------------------------
 
 
-def format_links(names: list[str]) -> str:
-    return ", ".join(f"[[{n}]]" for n in sorted(names, key=str.casefold))
+def format_links(found: list[wl.Page]) -> str:
+    return ", ".join(wl.page_link(p) for p in sorted(found, key=lambda p: p.path.stem.casefold()))
 
 
 def build_log_entry(vault: Path, slug: str, date: str, notes: list[str]) -> str:
@@ -296,6 +297,18 @@ class Report:
         self.warnings.append(f"{where}: {message}")
 
 
+def alias_targets(vault: Path) -> set[str]:
+    """Casefolded `aliases` of every wiki page. A link to one only works in a search box, not as a link."""
+    names = set()
+    for folder in wl.FOLDER_TYPE:
+        for page in wl.pages(vault, folder):
+            raw = page.fm.get("aliases")
+            for alias in raw if isinstance(raw, list) else [raw]:
+                if alias:
+                    names.add(str(alias).casefold())
+    return names
+
+
 def known_targets(vault: Path) -> set[str]:
     """Casefolded names a wikilink may resolve to: file names and vault paths."""
     names = set()
@@ -309,7 +322,7 @@ def known_targets(vault: Path) -> set[str]:
     return names
 
 
-def check_page(vault: Path, folder: str, page: wl.Page, targets: set[str], report: Report) -> None:
+def check_page(vault: Path, folder: str, page: wl.Page, targets: set[str], aliases: set[str], report: Report) -> None:
     where = page.path.relative_to(vault).as_posix()
     kind, fm = wl.FOLDER_TYPE[folder], page.fm
     if not fm:
@@ -345,7 +358,11 @@ def check_page(vault: Path, folder: str, page: wl.Page, targets: set[str], repor
     if wl.PLACEHOLDER in page.text:
         report.error(where, f"`{wl.PLACEHOLDER}` placeholder is still present")
     for target in dict.fromkeys(wl.link_targets(page.text)):
-        if target.casefold() not in targets:
+        if target.casefold() in targets:
+            continue
+        if target.casefold() in aliases:
+            report.warn(where, f"link [[{target}]] matches an alias, not a file name; link the slug instead")
+        else:
             report.error(where, f"broken link [[{target}]]")
 
 
@@ -394,14 +411,21 @@ def check_log(vault: Path, slugs: list[str], scoped: bool, report: Report) -> No
 def validate(vault: Path, slug: str | None = None, pages_only: bool = False) -> tuple[Report, int]:
     """Validate the wiki, or one ingest when `slug` is given. Return (report, pages checked)."""
     report = Report()
+    for path in sorted((vault / "Wiki").rglob("*.md")):
+        if " " in path.name:
+            where = path.relative_to(vault).as_posix()
+            report.error(
+                where, f"file name has a space; use `{wl.page_slug(path.stem) or 'a slug'}.md` (migrate-slugs.py)"
+            )
     targets = known_targets(vault)
+    aliases = alias_targets(vault)
     checked = 0
     for folder in wl.FOLDER_TYPE:
         for page in wl.pages(vault, folder):
             if slug and page.path.stem != slug and not wl.links_to(page.text, slug):
                 continue
             checked += 1
-            check_page(vault, folder, page, targets, report)
+            check_page(vault, folder, page, targets, aliases, report)
 
     sources = wl.pages(vault, "sources")
     seen: dict[str, int] = {}

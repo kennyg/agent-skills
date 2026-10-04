@@ -12,4 +12,4 @@ tags:
 
 # Gamma
 
-Gamma mentions [[Acme]].
+Gamma mentions [[acme|Acme]].

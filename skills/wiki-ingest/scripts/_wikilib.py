@@ -20,11 +20,10 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from functools import cache
 from pathlib import Path
 from typing import NamedTuple
-
-import yaml
 
 # Raw source folders. Everything below them is a source unless skipped.
 RAW_DIRS = ("Clippings", "Twitter-Captures")
@@ -49,6 +48,8 @@ PLACEHOLDER = "TODO(ingest)"
 SLUG_LIMIT = 60
 
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+# A wikilink alias is set off by `|`. Inside a Markdown table it is written `\|`.
+ALIAS_SEP_RE = re.compile(r"\\?\|")
 FENCED_CODE_RE = re.compile(r"^(?P<fence>```+|~~~+).*?(?:^(?P=fence).*?$|\Z)", re.M | re.S)
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
@@ -111,11 +112,26 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def slugify(text: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-")
-    if len(slug) > SLUG_LIMIT:
-        slug = slug[:SLUG_LIMIT].rsplit("-", 1)[0]
-    return slug or "untitled"
+def slugify(text: str, limit: int | None = SLUG_LIMIT, fallback: str = "untitled") -> str:
+    """Return a lowercase ASCII kebab-case slug.
+
+    Accents fold to their base letter. Every other run of characters outside
+    `a-z0-9` becomes one hyphen. `limit` cuts at a word boundary; `None` keeps
+    the whole slug.
+    """
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", folded.casefold()).strip("-")
+    if limit is not None and len(slug) > limit:
+        slug = slug[:limit].rsplit("-", 1)[0]
+    return slug or fallback
+
+
+def page_slug(title: str) -> str:
+    """Return the file stem for a wiki page title, or "" when the title has no ASCII letter or digit.
+
+    Page slugs are never cut short, so two long titles do not collide by truncation.
+    """
+    return slugify(title, limit=None, fallback="")
 
 
 def normalize(name: str) -> str:
@@ -146,6 +162,8 @@ def split_frontmatter(text: str) -> tuple[str, str] | None:
 
 
 def parse_frontmatter_text(text: str) -> dict:
+    import yaml  # imported here so the pure helpers load without PyYAML
+
     split = split_frontmatter(text)
     if split is None:
         return {}
@@ -289,7 +307,27 @@ def strip_code(text: str) -> str:
 
 def wikilink_target(inner: str) -> str:
     """Return the page name in the inside of a wikilink, without alias or heading."""
-    return inner.split("|")[0].split("#")[0].strip()
+    return ALIAS_SEP_RE.split(inner, maxsplit=1)[0].split("#")[0].strip()
+
+
+def wikilink(target: str, title: str | None = None, table: bool = False) -> str:
+    """Write `[[target|title]]`, or `[[target]]` when the title adds nothing.
+
+    In a Markdown table the separator is `\\|`, so the pipe does not end the cell.
+    """
+    title = re.sub(r"[\[\]|]", "", title or "").strip()
+    if not title or title == target:
+        return f"[[{target}]]"
+    return f"[[{target}{chr(92) + '|' if table else '|'}{title}]]"
+
+
+def page_title(page: Page) -> str:
+    return str(page.fm.get("title") or page.path.stem)
+
+
+def page_link(page: Page, table: bool = False) -> str:
+    """Link to a wiki page by file stem and show its title."""
+    return wikilink(page.path.stem, page_title(page), table)
 
 
 def link_targets(text: str) -> list[str]:
@@ -315,6 +353,8 @@ def has_log_entry(log_text: str, slug: str) -> bool:
 def ingest_summary(vault: Path, slug: str, date: str) -> dict:
     """List entity and concept pages that link to a source page, split by created or updated.
 
+    Each list holds `Page` objects.
+
     A page counts as created when its `date_created` equals `date`. The result
     is deterministic, so the log entry and the commit message agree.
     """
@@ -324,5 +364,5 @@ def ingest_summary(vault: Path, slug: str, date: str) -> dict:
         for page in pages(vault, folder):
             if links_to(page.text, slug):
                 kind = "created" if str(page.fm.get("date_created")) == date else "updated"
-                out[folder][kind].append(page.path.stem)
+                out[folder][kind].append(page)
     return out
