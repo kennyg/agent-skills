@@ -11,12 +11,19 @@ summary, the key claims and the entity and concept lists for the model. Each
 open slot holds the marker `TODO(ingest)`, and `validate-wiki.py` fails while
 any marker remains.
 
+A clipping in `Clippings/` is renamed first, if its file name is not a slug. The
+new name is `page_slug(<file stem>).md`, written with `git mv`. The script
+never edits the content, and it stops if the SHA-256 changes. It refuses when a
+note in the same folder already has the new name, and it warns when a note in
+another folder has it. `--clip-slug` picks the name. `Twitter-Captures/` files
+are never renamed.
+
 For a source that changed since ingest, pass `--refresh`. The script then
 updates `source_hash` and `date_ingested` on the existing page and touches
 nothing else.
 
 Usage:
-    scaffold-source.py [--vault DIR] [--slug SLUG] [--refresh] RAW_PATH
+    scaffold-source.py [--vault DIR] [--slug SLUG] [--clip-slug NAME] [--refresh] RAW_PATH
 
 RAW_PATH is relative to the vault root, or absolute.
 """
@@ -28,6 +35,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _wikiclips as clips  # noqa: E402
 import _wikilib as wl  # noqa: E402
 
 TODO = wl.PLACEHOLDER
@@ -98,7 +106,48 @@ def refresh(page: wl.Page, vault: Path, digest: str) -> int:
     return 0
 
 
-def create(vault: Path, rel: str, digest: str, slug: str | None) -> int:
+def rename_clipping(vault: Path, rel: str, clip_slug: str | None, page_slug: str) -> str | None:
+    """Rename a clipping to its slug. Return the new vault path, the old one if no rename is due, or None on refusal."""
+    old = vault / rel
+    if not rel.startswith(f"{clips.CLIP_DIR}/"):
+        if clip_slug:
+            print(f"error: --clip-slug applies to {clips.CLIP_DIR}/ only; {rel} is not there", file=sys.stderr)
+            return None
+        return rel
+    new_stem = clip_slug or wl.page_slug(old.stem)
+    if not clip_slug and not wl.needs_slug(old.stem):
+        return rel
+    if not clips.valid_slug(new_stem):
+        print(
+            f"error: cannot make a slug from {old.stem!r}; pass --clip-slug with lowercase letters, digits and hyphens",
+            file=sys.stderr,
+        )
+        return None
+    if new_stem == old.stem:
+        return rel
+    new = clips.target_for(old, new_stem)
+    collisions, clashes = clips.check_targets(vault, [(old, new)])
+    if collisions:
+        taken = ", ".join(p for group in collisions.values() for p in group if p != rel)
+        print(f"error: cannot rename {rel} to {new_stem}.md; the name is taken by {taken}", file=sys.stderr)
+        print("pass --clip-slug to choose another name", file=sys.stderr)
+        return None
+    planned = f"Wiki/sources/{page_slug}.md"
+    for group in clashes.values():
+        print(f"warning: {new_stem}.md has the same note name as {', '.join(group[1:])}", file=sys.stderr)
+    if page_slug.casefold() == new_stem.casefold():
+        print(f"warning: {new_stem}.md has the same note name as the new page {planned}", file=sys.stderr)
+    try:
+        clips.move_clipping(vault, old, new)
+    except RuntimeError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return None
+    new_rel = clips.rel(vault, new)
+    print(f"renamed {rel} -> {new_rel}  (content unchanged)")
+    return new_rel
+
+
+def create(vault: Path, rel: str, digest: str, slug: str | None, clip_slug: str | None = None) -> int:
     raw_fm = wl.parse_frontmatter(vault / rel)
     title = str(raw_fm.get("title") or Path(rel).stem)
     slug = slug or unique_slug(vault, wl.slugify(title))
@@ -106,6 +155,10 @@ def create(vault: Path, rel: str, digest: str, slug: str | None) -> int:
     if target.exists():
         print(f"error: {target.name} exists; pick another --slug", file=sys.stderr)
         return 2
+    new_rel = rename_clipping(vault, rel, clip_slug, slug)
+    if new_rel is None:
+        return 2
+    rel = new_rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build_page(rel, raw_fm, digest, title, wl.today()), encoding="utf-8")
     print(f"created {target.relative_to(vault).as_posix()}  slug={slug}  sha256={digest}")
@@ -116,6 +169,9 @@ def main() -> int:
     parser = wl.make_parser(__doc__)
     parser.add_argument("raw", help="raw source path, relative to the vault root or absolute")
     parser.add_argument("--slug", help="page name; default is derived from the title")
+    parser.add_argument(
+        "--clip-slug", help="new file name for the clipping, without .md; default is the slug of its name"
+    )
     parser.add_argument("--refresh", action="store_true", help="re-stamp hash and date on an existing page")
     args, vault = wl.parse(parser)
 
@@ -139,7 +195,8 @@ def main() -> int:
     if existing is not None:
         print(f"error: {existing.path.name} already covers {rel}; use --refresh", file=sys.stderr)
         return 2
-    return create(vault, rel, wl.sha256_file(vault / rel), args.slug)
+    digest = wl.sha256_file(vault / rel)
+    return create(vault, rel, digest, args.slug, args.clip_slug)
 
 
 if __name__ == "__main__":

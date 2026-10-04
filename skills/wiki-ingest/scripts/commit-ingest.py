@@ -5,8 +5,9 @@
 # ///
 """Commit one ingested source, with a fixed message.
 
-The commit holds only paths under `Wiki/`, so unrelated vault edits stay out.
-The script validates the ingest first and refuses to commit when it fails. It
+The commit holds only paths under `Wiki/` and the raw source. When ingest
+renamed the clipping with `git mv`, the commit holds the rename. Unrelated
+vault edits stay out. The script validates the ingest first and refuses to commit when it fails. It
 never pushes.
 
 Message format:
@@ -31,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _wikilib as wl  # noqa: E402
 import _wikiops as ops  # noqa: E402
 
+CLIP_DIR = "Clippings"
+
 
 def message(vault: Path, slug: str) -> str:
     fm = wl.parse_frontmatter(wl.source_page_path(vault, slug))
@@ -46,6 +49,20 @@ def message(vault: Path, slug: str) -> str:
         f"Created: {counts('created')}\n"
         f"Updated: {counts('updated')}\n"
     )
+
+
+def raw_paths(vault: Path, slug: str) -> list[str]:
+    """The raw source path, and its old path when `git mv` staged a rename to it."""
+    raw = str(wl.parse_frontmatter(wl.source_page_path(vault, slug)).get("source_path") or "")
+    if not raw:
+        return []
+    paths = [raw]
+    staged = wl.git(vault, "diff", "--cached", "--name-status", "-z", "-M", "--diff-filter=R", "--", CLIP_DIR)
+    fields = staged.stdout.split("\0") if staged.returncode == 0 else []
+    for i in range(0, len(fields) - 2, 3):
+        if fields[i + 2] == raw:
+            paths.append(fields[i + 1])
+    return paths
 
 
 def main() -> int:
@@ -65,18 +82,20 @@ def main() -> int:
     if args.dry_run:
         print(text)
         return 0
-    status = wl.git(vault, "status", "--porcelain", "--", "Wiki")
+    paths = ["Wiki", *raw_paths(vault, slug)]
+    status = wl.git(vault, "status", "--porcelain", "--", *paths)
     if status.returncode != 0:
         print("error: the vault is not a git repository", file=sys.stderr)
         return 2
     if not status.stdout.strip():
         print("nothing to commit under Wiki/")
         return 0
-    added = wl.git(vault, "add", "-A", "--", "Wiki")
+    # `git add` rejects a path that `git mv` already removed. `git commit` accepts it.
+    added = wl.git(vault, "add", "-A", "--", *(p for p in paths if p == "Wiki" or (vault / p).exists()))
     if added.returncode != 0:
         print(added.stderr, file=sys.stderr)
         return added.returncode
-    done = wl.git(vault, "commit", "-m", text, "--", "Wiki")
+    done = wl.git(vault, "commit", "-m", text, "--", *paths)
     print(done.stdout.strip() or done.stderr.strip())
     return done.returncode
 

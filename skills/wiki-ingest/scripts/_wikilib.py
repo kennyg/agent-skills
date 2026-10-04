@@ -134,6 +134,11 @@ def page_slug(title: str) -> str:
     return slugify(title, limit=None, fallback="")
 
 
+def needs_slug(stem: str) -> bool:
+    """Tell whether a clipping file stem differs from its slug, so ingest renames it."""
+    return stem != page_slug(stem)
+
+
 def normalize(name: str) -> str:
     """Fold a page name for matching: case-insensitive, punctuation-insensitive."""
     return re.sub(r"[^a-z0-9]+", "", name.casefold())
@@ -275,15 +280,31 @@ def classify(vault: Path) -> dict:
     The rule matches the retired `vault-status.sh`: a raw file is new when no
     source page names it in `source_path`, and changed when the page's
     `source_hash` differs from the file's SHA-256. A page with no hash counts as
-    changed so a backfill is visible.
+    changed so a backfill is visible. A raw file with no page is `renamed`, not
+    new, when its hash equals the `source_hash` of a page whose own raw file is
+    gone. That page needs a new `source_path`, not a new ingest.
     """
     indexed = source_pages(vault)
-    new, changed, unchanged = [], [], 0
-    for rel in raw_sources(vault):
+    raw = raw_sources(vault)
+    present = set(raw)
+    # A page whose raw file is gone may point at a file that was renamed.
+    orphans: dict[str, list[Page]] = {}
+    for path, page in indexed.items():
+        if path not in present and page.fm.get("source_hash"):
+            orphans.setdefault(str(page.fm["source_hash"]), []).append(page)
+    new, changed, renamed, unchanged = [], [], [], 0
+    for rel in raw:
         digest = sha256_file(vault / rel)
         page = indexed.get(rel)
         if page is None:
-            new.append({"source": rel, "sha256": digest})
+            moved_from = orphans.get(digest)
+            if moved_from:
+                old = moved_from.pop(0)
+                renamed.append(
+                    {"source": rel, "sha256": digest, "page": old.path.stem, "was": str(old.fm["source_path"])}
+                )
+            else:
+                new.append({"source": rel, "sha256": digest})
             continue
         recorded = page.fm.get("source_hash")
         if not recorded:
@@ -294,7 +315,7 @@ def classify(vault: Path) -> dict:
             unchanged += 1
             continue
         changed.append({"source": rel, "sha256": digest, "page": page.path.stem, "reason": reason})
-    return {"new": new, "changed": changed, "unchanged_count": unchanged}
+    return {"new": new, "changed": changed, "renamed": renamed, "unchanged_count": unchanged}
 
 
 # --- links and the log ----------------------------------------------------------
