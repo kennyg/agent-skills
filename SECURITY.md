@@ -102,7 +102,7 @@ lower the risk:
 - Check the release tag. Compare the tag that you installed with the
   [release tags on GitHub](https://github.com/kennyg/agent-skills/tags).
   Record the commit SHA of the tag, for example with
-  `git -C agent-skills rev-parse "$tag^{commit}"`. If the SHA for a tag changes later, treat
-  the tag as suspect and report it.
+  `git -C agent-skills rev-parse "$tag^{commit}"`. If the SHA for a tag
+  changes later, treat the tag as suspect and report it.
 - Install only the skills that you need, and remove skills that you no longer
   use.
