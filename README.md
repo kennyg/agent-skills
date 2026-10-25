@@ -90,6 +90,12 @@ The `SKILL.md` frontmatter includes:
 
 See [skills.sh](https://skills.sh/) for the full specification and skill directory.
 
+## Security
+
+Skills run inside your agent with your permissions. Read the
+[security policy](SECURITY.md) to report a vulnerability privately and to
+learn how to install skills safely.
+
 ## License
 
 MIT
