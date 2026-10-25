@@ -86,10 +86,13 @@ A skill can run code on your machine through your agent. Use these steps to
 lower the risk:
 
 - Pin a release tag. Do not install from `main`, because `main` can change
-  at any time. For example:
+  at any time. For example, these commands find the latest release tag, clone
+  it, and install one skill:
 
   ```bash
-  git clone --depth 1 --branch v1.5.0 https://github.com/kennyg/agent-skills.git
+  repo=https://github.com/kennyg/agent-skills.git
+  tag=$(git ls-remote --tags --refs --sort=-v:refname "$repo" | head -n 1 | sed 's|.*refs/tags/||')
+  git clone --depth 1 --branch "$tag" "$repo"
   cp -r agent-skills/skills/github-gist ~/.claude/skills/
   ```
 
@@ -99,7 +102,7 @@ lower the risk:
 - Check the release tag. Compare the tag that you installed with the
   [release tags on GitHub](https://github.com/kennyg/agent-skills/tags).
   Record the commit SHA of the tag, for example with
-  `git rev-parse v1.5.0^{commit}`. If the SHA for a tag changes later, treat
+  `git -C agent-skills rev-parse "$tag^{commit}"`. If the SHA for a tag changes later, treat
   the tag as suspect and report it.
 - Install only the skills that you need, and remove skills that you no longer
   use.
