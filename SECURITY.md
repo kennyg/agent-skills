@@ -24,8 +24,9 @@ problem. A public report shows the problem to attackers before a fix exists.
 
 ## Supported versions
 
-Only the latest release tag gets security fixes. Release tags so far run from
-`v1.0.0` to `v1.5.0`.
+Only the latest release tag gets security fixes. See the
+[release tags on GitHub](https://github.com/kennyg/agent-skills/tags) for the
+current list.
 
 | Version | Supported |
 |---------|-----------|
