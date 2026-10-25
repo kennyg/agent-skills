@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.6.0 (Unreleased)
+
+Added a skill that audits the security settings of public GitHub repos and applies a hardened baseline.
+
+### New Skills
+
+- **github-harden** — Audit public GitHub repos against one security baseline, and apply it where a repo misses it. The baseline covers collaborators-only pull requests, approval for fork PR runs from all outside contributors, private vulnerability reporting, Dependabot alerts and security updates, a read-only `GITHUB_TOKEN`, the `Protect main` and `Protect release tags` rulesets, and secret scanning with push protection.
+
+### github-harden Details
+
+- **Audit by default** — `harden.py` reads every setting through `gh api` and changes nothing. It prints one row per repo, or JSON with `--json`. The scope is every public repo of a user or org, a list of repos, or one repo. Forks and archived repos are skipped unless `--include-forks` or `--include-archived` is passed.
+- **Apply only on request** — `--plan` lists each change. `--apply` lists the changes again and needs `--yes` or a typed `yes`. It changes only the settings that differ, then reads each one back and prints `FAILED` for each change that did not hold. `--skip <setting>` leaves a setting alone.
+- **Warn before closing PRs** — The plan prints a `WARNING` for each repo where people without write access opened pull requests before, because collaborators-only blocks them from then on.
+- **No duplicate rulesets** — A ruleset with the baseline name is updated in place. The update keeps its extra rules, ref patterns and bypass actors. A `POST` whose reply is lost is never sent again, because the first one can have created the ruleset.
+- **Report-only items** — The audit reports workflows without `actionlint` or `zizmor`, repos with no security policy, and outside PR authors. It never changes them.
+- **Parallel and rate-limit aware** — The script reads 6 repos at once by default. It waits on rate limits and retries reads and idempotent writes that get no response. It reads a 404 on a missing feature as `n/a`.
+
+---
+
 ## v1.5.0 (2026-08-09)
 
 Source pages now draw the call graph instead of only tabulating it.
