@@ -38,7 +38,7 @@ The table has one row per repo and one column per setting. A cell reads `ok` whe
 
 The JSON output gives `current`, `desired` and `ok` for each setting, the report-only items, the skipped repos and any errors.
 
-Forks and archived repos are skipped. Pass `--include-forks` or `--include-archived` to audit them too.
+Forks and archived repos are skipped. Pass `--include-forks` or `--include-archived` to audit them too. GitHub makes an archived repo read-only, so the script never plans a change for one. The plan prints a `NOTE` line for each archived repo that misses the baseline. Unarchive the repo first to harden it.
 
 ### 2. Plan
 
@@ -196,7 +196,8 @@ The script reports these items and never changes them. They need a human, becaus
 
 - The script reads up to 6 repos at once. Change the number with `--jobs`, up to 16.
 - The script waits and retries when GitHub returns a rate limit. It gives up when the reset is more than 5 minutes away.
-- It retries a request that gets no response, such as a network timeout. After the retries, it reports the error for that repo and goes on.
+- It retries a read or an idempotent write that gets no response, such as a network timeout. After the retries, it reports the error for that repo and goes on.
+- It never resends a `POST` that gets no response, because the first one can have reached GitHub. The only `POST` creates a ruleset. A lost reply prints `FAILED`, and the next run finds the ruleset if it exists and creates nothing.
 - It reads a 404 on a feature as `n/a`. The exception is Dependabot alerts, where GitHub answers 404 to mean "off".
 - It passes every argument to `gh` as a list, never through a shell. It prints values and API messages only, never headers or tokens.
 

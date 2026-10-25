@@ -452,6 +452,32 @@ class Rulesets(unittest.TestCase):
         types = [r["type"] for r in rulesets[0]["rules"]]
         self.assertEqual(types, ["deletion", "required_linear_history", "non_fast_forward"])
 
+    def test_post_with_a_lost_reply_is_not_sent_again(self) -> None:
+        fake = FakeGitHub({"me/r": {**COMPLIANT, "rulesets": []}})
+
+        def lossy(argv, **kw):
+            reply = fake(argv, **kw)
+            if "POST" in argv and "repos/me/r/rulesets" in argv:
+                return SimpleNamespace(stdout="", stderr="unexpected EOF\n", returncode=1)
+            return reply
+
+        args = harden.build_parser().parse_args(["--apply", "--yes"])
+        out, err = io.StringIO(), io.StringIO()
+        code = harden.run(args, harden.Gh(run=lossy, sleep=lambda s: None), out=out, err=err)
+        posts = [c for c in fake.writes if c[0] == "POST"]
+        self.assertEqual(len(posts), 2)  # One per missing ruleset, never a resend.
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED me/r: ruleset_main: unexpected EOF", err.getvalue())
+        # The next run finds the rulesets that did land and creates nothing.
+        self.assertEqual(run_cli(fake, "--apply", "--yes")[0], 0)
+        self.assertEqual(len(fake.repos["me/r"]["rulesets"]), 2)
+
+    def test_duplicate_ruleset_shows_in_the_table(self) -> None:
+        state = copy.deepcopy(COMPLIANT)
+        state["rulesets"].append({**state["rulesets"][0], "id": 9})
+        _, out, _ = run_cli(FakeGitHub({"me/r": state}))
+        self.assertIn("ok x2", out.splitlines()[1])
+
     def test_body_moves_the_ref_out_of_exclude(self) -> None:
         spec = harden.RULESETS["ruleset_main"]
         existing = {"conditions": {"ref_name": {"include": [], "exclude": ["~DEFAULT_BRANCH", "dev"]}}}
@@ -475,6 +501,16 @@ class Scope(unittest.TestCase):
     def test_flags_include_them(self) -> None:
         _, out, _ = run_cli(self.fake(), "--json", "--include-forks", "--include-archived")
         self.assertEqual(len(json.loads(out)["repos"]), 3)
+
+    def test_archived_repo_gets_no_planned_changes(self) -> None:
+        fake = FakeGitHub({"me/old": OPEN})
+        fake.extra = {"me/old": {"archived": True}}
+        code, out, err = run_cli(fake, "--apply", "--yes", "--include-archived", "--json")
+        self.assertIn("Planned changes (0):", err)
+        self.assertIn("NOTE me/old: archived, so read-only. No changes planned.", err)
+        self.assertEqual(fake.writes, [])
+        self.assertTrue(json.loads(out)["repos"][0]["archived"])
+        self.assertEqual(code, 1)  # The repo still misses the baseline.
 
     def test_named_repos_and_bare_names(self) -> None:
         _, out, _ = run_cli(self.fake(), "--json", "a", "me/old", "--owner", "me")

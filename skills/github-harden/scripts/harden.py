@@ -142,9 +142,11 @@ class Gh:
             resp = parse_response(proc.stdout)
             if resp.status == 0:
                 # No HTTP response: a network error, or gh is not logged in. Retry, then report it.
+                # A POST may have reached GitHub before the reply was lost, and a second one would
+                # create a second resource, so only idempotent requests are sent again.
                 lines = (proc.stderr or "").strip().splitlines()
                 resp.data = {"message": lines[-1] if lines else "gh api returned no HTTP response"}
-                if attempt < RETRIES:
+                if attempt < RETRIES and (method != "POST" or path == "graphql"):
                     self._sleep(2**attempt)
                     continue
                 return resp
@@ -522,13 +524,17 @@ class Result:
     errors: list[str] = field(default_factory=list)
     changes: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    archived: bool = False
 
     @property
     def meets(self) -> bool:
         return not self.errors and all(s.ok is not False for s in self.settings.values())
 
     def gaps(self, skip: set[str]) -> list[Check]:
-        """Checks to change. A setting the audit could not read is never changed."""
+        """Checks to change. A setting the audit could not read is never changed.
+        An archived repo is read-only, so nothing in it is changed."""
+        if self.archived:
+            return []
         return [
             c
             for c in CHECKS
@@ -542,6 +548,7 @@ class Result:
         return {
             "repo": self.repo,
             "meets_baseline": self.meets,
+            "archived": self.archived,
             "settings": {
                 c.key: {"current": s.value, "desired": c.desired, "ok": s.ok}
                 for c in CHECKS
@@ -563,7 +570,7 @@ def read_check(repo: Repo, check: Check) -> State:
 def audit(repo: Repo, pr_pages: int, reports: bool = True) -> Result:
     result = Result(repo.name)
     try:
-        repo.info()
+        result.archived = bool(repo.info().get("archived"))
     except ApiError as exc:
         result.errors.append(f"repo: {exc}")
         return result
@@ -659,7 +666,10 @@ def cell(state: State | None) -> str:
         return "?"
     if state.ok is None:
         return NA
-    return "ok" if state.ok else f"NO({state.value})"
+    if not state.ok:
+        return f"NO({state.value})"
+    # Keep the duplicate count of a ruleset, such as `ok x2`.
+    return "ok" + state.value[2:] if state.value.startswith("ok ") else "ok"
 
 
 def report_cell(value: object) -> str:
@@ -760,6 +770,9 @@ def run(args: argparse.Namespace, gh: Gh, out=sys.stdout, err=sys.stderr) -> int
             print(f"  {line}", file=err)
         for line in warnings:
             print(f"WARNING {line}", file=err)
+        for r in results:
+            if r.archived and not r.meets:
+                print(f"NOTE {r.repo}: archived, so read-only. No changes planned.", file=err)
         if args.plan or not lines:
             return emit(args, results, skipped, out, err)
         if not args.yes and not confirm("Type yes to apply these changes: "):
