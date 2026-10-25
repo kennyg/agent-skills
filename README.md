@@ -23,6 +23,7 @@ Skills are reusable extensions that give AI coding agents specialized capabiliti
 | [code-ingest](skills/code-ingest/) | Ingest a codegraph-indexed codebase into a repo-local code wiki |
 | [gherkin-step-scaffold](skills/gherkin-step-scaffold/) | Generate skeleton step definition files from Cucumber/Gherkin feature files |
 | [github-gist](skills/github-gist/) | Create GitHub gists quickly from files, code snippets, or text content |
+| [github-harden](skills/github-harden/) | Audit the security settings of public GitHub repos and apply a hardened baseline |
 | [going-ashore](skills/going-ashore/) | Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr ("going ashore") |
 | [hk-setup](skills/hk-setup/) | Set up hk (git hook manager) with pre-commit hooks for any project |
 | [idea-capture](skills/idea-capture/) | Capture an idea into an Obsidian vault as one note in Ideas/ plus a backlog line in Inbox/Tasks.md |
