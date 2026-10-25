@@ -14,7 +14,7 @@ reporting:
 1. Open the [security advisories page for this repo](https://github.com/kennyg/agent-skills/security/advisories/new).
 2. Describe the problem, the affected skill or script, and the steps to
    reproduce it.
-3. Submit the report. Only the maintainer can see it.
+3. Submit the report.
 
 You can also reach the form from the **Security** tab of the repo. Select
 **Report a vulnerability**.
