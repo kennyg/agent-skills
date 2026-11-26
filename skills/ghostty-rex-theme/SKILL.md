@@ -78,7 +78,7 @@ Apply only after the user approves the dry run. Pass the same paths.
 1. It writes each palette file to `$XDG_CONFIG_HOME/rex/ghostty-themes/`. Pass `--out DIR` to use another folder. A different file at the same path is saved as `<name>.bak-<time>` first.
 2. It saves the current Light Mode and Dark Mode choice in `rex-theme-selection.bak-<time>.json` in the same folder. The file also holds the undo commands.
 3. It imports each theme with `client.theme.import`. A theme that Rex already has, by name, is not imported again.
-4. It chooses each theme for its appearance with `client.setting.themes.<light|dark>.palette`.
+4. It chooses each theme for its slot with `client.setting.themes.<light|dark>.palette`, by theme ID. It chooses the old theme again for a slot outside the plan.
 5. It reads the choice back from Rex and prints `check FAILED` for each one that did not hold.
 
 `--write` does only step 1 and prints the manual steps.
@@ -97,10 +97,14 @@ The same commands are in the `rex-theme-selection.bak-<time>.json` file. Importe
 
 | Ghostty | Rex |
 |---|---|
-| `theme = Name` | One custom theme, chosen for both Light Mode and Dark Mode, because Ghostty uses it for both. |
-| `theme = light:A,dark:B` | Two custom themes. `A` is the Light Mode theme and `B` is the Dark Mode theme. |
+| `theme = Name` | One custom theme, chosen for the one slot that matches its class. The other slot keeps its theme. |
+| `theme = light:A,dark:B` | Two custom themes. `A` is the Light Mode theme and `B` is the Dark Mode theme, if their classes match. |
 | `palette = N=#rrggbb`, `background`, `foreground`, `cursor-color`, `cursor-text`, `selection-background`, `selection-foreground` | The same keys in the palette file. Inline colors override the theme, as in Ghostty. The theme name then gets ` (custom)`. |
 | Inline colors with no `theme` | One custom theme named `Ghostty`. |
+
+Rex classes each imported theme as light or dark from its background. Light Mode accepts only light themes, and Dark Mode accepts only dark themes. So a dark Ghostty theme such as Catppuccin Macchiato becomes the Dark Mode theme only. The dry run predicts the class from the background luminance, and `--apply` reads the real class back from Rex. If a pair asks for a theme in the wrong slot, the script prints `NOT DONE`, leaves that slot alone and exits 1.
+
+Rex also puts an imported theme in the slot of its class at once. `--apply` then chooses every slot again, so a slot outside the plan keeps its old theme.
 
 A theme name resolves to a file in this order:
 

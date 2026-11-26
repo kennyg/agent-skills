@@ -49,6 +49,8 @@ COLOR_KEYS = (
     "selection-foreground",
 )
 APPEARANCES = ("light", "dark")
+# Relative luminance of middle grey (CIE L* = 50).
+LIGHT_LUMINANCE = 0.184
 HEX = re.compile(r"^#?([0-9a-fA-F]{6})$")
 SHORT_HEX = re.compile(r"^#?([0-9a-fA-F]{3})$")
 
@@ -297,6 +299,25 @@ class RexTheme:
     def missing(self) -> list[str]:
         return self.colors.missing()
 
+    def predicted(self) -> str:
+        """The appearance Rex is likely to give the theme, from how bright its background is.
+
+        Rex classes every imported theme as light or dark, and a Light Mode or Dark Mode
+        slot accepts only a theme of its own class. Rex's built-in dark themes have a
+        background luminance of 0.003 to 0.024 and its light themes 0.876 to 1.0, so
+        middle grey is the cut-off. --apply reads the real class back after the import.
+        """
+        bg = self.colors.named.get("background")
+        if not bg:
+            return "dark"
+        r, g, b = (int(bg[i : i + 2], 16) / 255 for i in (1, 3, 5))
+
+        def linear(c: float) -> float:
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+        luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        return "light" if luminance > LIGHT_LUMINANCE else "dark"
+
 
 @dataclass
 class Plan:
@@ -399,8 +420,20 @@ def read_rex_defaults() -> dict | None:
         return None
 
 
-def custom_theme_names(prefs: dict | None) -> dict[str, str]:
-    """Map each custom theme's name to its ID. The storage is private and may change."""
+@dataclass
+class Custom:
+    id: str
+    name: str
+    appearance: str | None
+
+
+def custom_themes(prefs: dict | None) -> dict[str, Custom]:
+    """Map each custom theme's lower-case name to its entry.
+
+    Rex 0.1.0 keeps custom themes as a JSON list in `Workspace.customThemes`, each
+    with `id`, `name` and `appearance`. The storage is private and may change, so
+    this reads it only, and returns nothing for a shape it does not know.
+    """
     if not prefs:
         return {}
     raw = prefs.get("Workspace.customThemes")
@@ -409,21 +442,11 @@ def custom_theme_names(prefs: dict | None) -> dict[str, str]:
             raw = json.loads(raw)
         except ValueError:
             return {}
-    found: dict[str, str] = {}
-
-    def walk(node, key_hint=None):
-        if isinstance(node, dict):
-            name = node.get("name")
-            ident = node.get("id") or key_hint
-            if isinstance(name, str) and isinstance(ident, str):
-                found[name] = ident
-            for k, v in node.items():
-                walk(v, k if isinstance(k, str) else None)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(raw)
+    found: dict[str, Custom] = {}
+    for node in raw if isinstance(raw, list) else []:
+        if isinstance(node, dict) and isinstance(node.get("id"), str) and isinstance(node.get("name"), str):
+            appearance = node.get("appearance") if node.get("appearance") in APPEARANCES else None
+            found[node["name"].lower()] = Custom(node["id"], node["name"], appearance)
     return found
 
 
@@ -489,6 +512,8 @@ def header_for(theme: RexTheme) -> str:
 
 
 def plan_json(plan: Plan, prefs: dict | None) -> dict:
+    customs = custom_themes(prefs)
+    targets, refused = slot_plan(plan, customs)
     return {
         "config_files": [str(p) for p in plan.config_files],
         "theme_setting": (
@@ -505,11 +530,14 @@ def plan_json(plan: Plan, prefs: dict | None) -> dict:
                 "file_name": t.file_name,
                 "colors": t.colors.to_json(),
                 "missing": t.missing(),
+                "rex_class": rex_class(t, customs),
             }
             for t in plan.themes
         ],
         "rex_selection_now": selection(prefs),
-        "rex_custom_themes_now": sorted(custom_theme_names(prefs)),
+        "rex_selection_planned": {slot: t.name for slot, t in targets.items()},
+        "rex_refused": [{"theme": t.name, "slot": slot, "rex_class": kind} for t, slot, kind in refused],
+        "rex_custom_themes_now": sorted(c.name for c in custom_themes(prefs).values()),
         "not_migrated": [{"key": s.key, "value": s.value, "at": s.where()} for s in plan.not_migrated],
         "unusable_colors": [u for t in plan.themes for u in t.colors.unusable] or plan.inline.unusable,
         "problems": plan.problems,
@@ -575,16 +603,30 @@ def print_report(plan: Plan, prefs: dict | None, out: Path) -> None:
     p("")
     p("Rex")
     now = selection(prefs)
-    customs = custom_theme_names(prefs)
+    customs = custom_themes(prefs)
     if prefs is None:
         p("  current settings: could not read (Rex is not installed, or this is not macOS)")
     else:
         p(f"  Light Mode theme now: {now['light'] or 'default'}")
         p(f"  Dark Mode theme now:  {now['dark'] or 'default'}")
     for t in plan.themes:
-        f = out / t.file_name
-        state = "already imported" if t.name in customs else "import as a custom theme"
-        p(f"  {t.name}: write {f}, {state}, choose for {' and '.join(m.capitalize() + ' Mode' for m in t.appearances)}")
+        known = customs.get(t.name.lower())
+        state = "already a custom theme" if known else f"import {out / t.file_name}"
+        kind = rex_class(t, customs)
+        how = "Rex classes it as" if known else "Rex will likely class it as"
+        p(f"  {t.name}: {state}. {how} {kind}.")
+    targets, refused = slot_plan(plan, customs)
+    for slot in APPEARANCES:
+        label = f"{slot.capitalize()} Mode"
+        if slot in targets:
+            p(f"  {label}: {now.get(slot) or 'default'} -> {targets[slot].name}")
+        else:
+            p(f"  {label}: stays {now.get(slot) or 'default'}")
+    for t, slot, kind in refused:
+        p(
+            f"  NOTE: Ghostty uses '{t.name}' in {slot} mode, but Rex accepts only {slot} themes for "
+            f"{slot.capitalize()} Mode, and '{t.name}' is {kind}."
+        )
 
     p("")
     p("Not migrated (Rex has no setting for these here; migrate them later)")
@@ -610,19 +652,39 @@ def print_report(plan: Plan, prefs: dict | None, out: Path) -> None:
                 p(f"    {d}")
 
 
-def manual_steps(plan: Plan, out: Path) -> list[str]:
+def manual_steps(plan: Plan, out: Path, customs: dict[str, Custom]) -> list[str]:
     steps = ["In Rex, open Settings > Themes."]
     for t in plan.themes:
         steps.append(f"Choose Import Theme, and pick {out / t.file_name}.")
-    for t in plan.themes:
-        for a in t.appearances:
-            steps.append(f"Under {a.capitalize()} Mode, choose '{t.name}'.")
+    targets, _ = slot_plan(plan, customs)
+    for slot, t in targets.items():
+        steps.append(f"Under {slot.capitalize()} Mode, choose '{t.name}'.")
     return steps
 
 
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
+
+
+def rex_class(theme: RexTheme, customs: dict[str, Custom]) -> str:
+    known = customs.get(theme.name.lower())
+    return (known.appearance if known else None) or theme.predicted()
+
+
+def slot_plan(plan: Plan, customs: dict[str, Custom]) -> tuple[dict[str, RexTheme], list[tuple[RexTheme, str, str]]]:
+    """Choose a theme for each Rex slot. A slot takes only a theme of its own class."""
+    targets: dict[str, RexTheme] = {}
+    refused: list[tuple[RexTheme, str, str]] = []
+    for t in plan.themes:
+        kind = rex_class(t, customs)
+        for slot in t.appearances:
+            if slot == kind:
+                targets[slot] = t
+            elif len(t.appearances) == 1:
+                # A pair asked for this slot on purpose. A single theme fills only its own slot.
+                refused.append((t, slot, kind))
+    return targets, refused
 
 
 def apply_to_rex(plan: Plan, prefs: dict | None, out: Path, rex: str, stamp: str) -> bool:
@@ -639,10 +701,9 @@ def apply_to_rex(plan: Plan, prefs: dict | None, out: Path, rex: str, stamp: str
     backup.write_text(json.dumps({"selection": before, "undo": undo}, indent=2) + "\n")
     print(f"Rex: saved the current Light Mode and Dark Mode choice in {backup}")
 
-    ok = True
-    customs = custom_theme_names(prefs)
+    customs = custom_themes(prefs)
     for t in plan.themes:
-        if t.name in customs:
+        if t.name.lower() in customs:
             print(f"Rex: '{t.name}' is already a custom theme; not imported again.")
             continue
         done, msg = rex_do(rex, client, "client.theme.import", path=str(out / t.file_name))
@@ -652,21 +713,36 @@ def apply_to_rex(plan: Plan, prefs: dict | None, out: Path, rex: str, stamp: str
                 print("Rex: turn on Remote Control in Rex Settings > General, then run --apply again.")
             return False
     time.sleep(0.5)
-    customs = custom_theme_names(read_rex_defaults()) or customs
-    for t in plan.themes:
-        value = customs.get(t.name, t.name)
-        for a in t.appearances:
-            done, msg = rex_do(rex, client, f"client.setting.themes.{a}.palette", value=value)
-            print(f"Rex: {a.capitalize()} Mode -> '{t.name}': {'ok' if done else 'FAILED: ' + msg}")
-            ok &= done
+    customs = custom_themes(read_rex_defaults()) or customs
+
+    # Rex puts an imported theme in the slot of its class at once. Choose every slot
+    # explicitly: the planned theme, or the old choice for a slot the plan leaves alone.
+    ok = True
+    targets, refused = slot_plan(plan, customs)
+    want: dict[str, str | None] = {}
+    for slot in APPEARANCES:
+        if slot in targets:
+            t = targets[slot]
+            known = customs.get(t.name.lower())
+            value, label = (known.id if known else t.name), t.name
+        else:
+            value = label = before[slot]
+        want[slot] = value
+        if not value:
+            continue
+        done, msg = rex_do(rex, client, f"client.setting.themes.{slot}.palette", value=value)
+        print(f"Rex: {slot.capitalize()} Mode -> '{label}': {'ok' if done else 'FAILED: ' + msg}")
+        ok &= done
+    for t, slot, kind in refused:
+        print(f"Rex: NOT DONE: '{t.name}' is {kind}, and Rex accepts only {slot} themes for {slot.capitalize()} Mode.")
+        ok = False
+
     time.sleep(0.5)
     after = selection(read_rex_defaults())
-    for t in plan.themes:
-        want = customs.get(t.name)
-        for a in t.appearances:
-            if want and after[a] != want:
-                print(f"Rex: check FAILED: {a.capitalize()} Mode is '{after[a]}', expected '{want}'.")
-                ok = False
+    for slot in APPEARANCES:
+        if want[slot] and after[slot] != want[slot]:
+            print(f"Rex: check FAILED: {slot.capitalize()} Mode is '{after[slot]}', expected '{want[slot]}'.")
+            ok = False
     print("")
     print("Undo: choose the old themes again with")
     for u in undo or ["(Rex used its default themes; choose them in Settings > Themes)"]:
@@ -718,12 +794,12 @@ def main(argv: list[str] | None = None) -> int:
         if not ok:
             print("")
             print("To finish by hand:")
-            for i, step in enumerate(manual_steps(plan, out), 1):
+            for i, step in enumerate(manual_steps(plan, out, custom_themes(read_rex_defaults())), 1):
                 print(f"  {i}. {step}")
     else:
         print("")
         print("Next steps:")
-        for i, step in enumerate(manual_steps(plan, out), 1):
+        for i, step in enumerate(manual_steps(plan, out, custom_themes(read_rex_defaults())), 1):
             print(f"  {i}. {step}")
         print(f"To undo, delete the files in {out}.")
     return 0 if ok else 1

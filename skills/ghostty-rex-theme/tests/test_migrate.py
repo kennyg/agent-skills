@@ -130,6 +130,18 @@ class LightDarkTests(Isolated):
         self.assertIn("Gone Missing 9c1", plan.problems[0])
 
 
+class ClassTests(Isolated):
+    def test_predicted_class(self):
+        plan = self.plan("light-dark")
+        kinds = {t.name: t.predicted() for t in plan.themes}
+        self.assertEqual(kinds, {"Fixture Light": "light", "Fixture Dark": "dark"})
+
+    def test_dry_run_shows_slots(self):
+        code, out = self.main(str(CONFIGS / "named"), "--themes-dir", str(THEMES))
+        self.assertEqual(code, 0)
+        self.assertIn("Rex will likely class it as dark", out)
+
+
 class InlineTests(Isolated):
     def test_inline_palette_without_theme(self):
         plan = self.plan("inline")
@@ -244,7 +256,11 @@ class WriteTests(Isolated):
 
 
 class FakeRex:
-    """Stand-in for the rex CLI and Rex's settings. Actions change the fake settings."""
+    """Stand-in for the rex CLI and Rex's settings, with Rex 0.1.0's behavior.
+
+    An import classes the theme as light or dark from its background and puts it in
+    that slot at once. A slot accepts only a theme of its own class, by ID or by name.
+    """
 
     def __init__(self, remote_control=True, customs=None):
         self.remote_control = remote_control
@@ -252,14 +268,18 @@ class FakeRex:
             "Workspace.lightThemeID": "merino-light",
             "Workspace.darkThemeID": "merino-dark",
         }
-        self.customs = dict(customs or {})
+        self.themes = {"merino-light": ("Merino Light", "light"), "merino-dark": ("Merino Dark", "dark")}
+        for name, (ident, kind) in (customs or {}).items():
+            self.themes[ident] = (name, kind)
         self.calls: list[list[str]] = []
         self.sync()
 
     def sync(self):
-        if self.customs:
-            themes = [{"id": i, "name": n} for n, i in self.customs.items()]
-            self.prefs["Workspace.customThemes"] = json.dumps(themes).encode()
+        customs = [
+            {"id": i, "name": n, "appearance": k, "palette": {}} for i, (n, k) in self.themes.items() if "custom" in i
+        ]
+        if customs:
+            self.prefs["Workspace.customThemes"] = json.dumps(customs).encode()
 
     def read(self):
         return dict(self.prefs)
@@ -277,15 +297,22 @@ class FakeRex:
             msg = "Error: Rex.app is not accepting actions. Turn on Remote Control in its Settings under General."
             return SimpleNamespace(returncode=1, stdout="", stderr=msg)
         action, arg = cmd[4], cmd[5]
-        key, _, value = arg.partition("=")
+        _, _, value = arg.partition("=")
         if action == "client.theme.import":
-            name = Path(value).name
-            self.customs[name] = "custom-" + str(len(self.customs) + 1)
+            colors = migrate.read_theme(Path(value))
+            kind = migrate.RexTheme("x", [], "", colors, "x").predicted()
+            ident = f"custom-{len(self.themes)}"
+            self.themes[ident] = (Path(value).name, kind)
+            self.prefs[f"Workspace.{kind}ThemeID"] = ident
             self.sync()
-        else:
-            appearance = action.split(".")[3]
-            self.prefs[f"Workspace.{appearance}ThemeID"] = value
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        slot = action.split(".")[3]
+        for ident, (name, kind) in self.themes.items():
+            if value in (ident, name.lower(), name) and kind == slot:
+                self.prefs[f"Workspace.{slot}ThemeID"] = ident
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+        msg = f'Error: "{value}" isn\'t a value {action} accepts. It takes the name of a {slot} theme.'
+        return SimpleNamespace(returncode=1, stdout="", stderr=msg)
 
 
 class ApplyTests(Isolated):
@@ -304,31 +331,83 @@ class ApplyTests(Isolated):
         code, text = self.main(*args)
         return code, text, out
 
+    def actions(self, fake):
+        return [c[4:] for c in fake.calls if "do" in c]
+
     def test_apply_imports_and_selects(self):
         fake = FakeRex()
         code, text, out = self.apply(fake)
         self.assertEqual(code, 0, text)
-        actions = [c[4:] for c in fake.calls if "do" in c]
         self.assertEqual(
-            actions,
+            self.actions(fake),
             [
                 ["client.theme.import", f"path={out / 'Fixture Light'}"],
                 ["client.theme.import", f"path={out / 'Fixture Dark'}"],
-                ["client.setting.themes.light.palette", "value=custom-1"],
-                ["client.setting.themes.dark.palette", "value=custom-2"],
+                ["client.setting.themes.light.palette", "value=custom-2"],
+                ["client.setting.themes.dark.palette", "value=custom-3"],
             ],
         )
-        self.assertEqual(fake.prefs["Workspace.darkThemeID"], "custom-2")
+        self.assertEqual(fake.prefs["Workspace.lightThemeID"], "custom-2")
+        self.assertEqual(fake.prefs["Workspace.darkThemeID"], "custom-3")
         backup = json.loads(next(out.glob("rex-theme-selection.bak-*.json")).read_text())
         self.assertEqual(backup["selection"], {"light": "merino-light", "dark": "merino-dark"})
         self.assertIn("value=merino-dark", text)
 
+    def test_single_dark_theme_fills_only_dark_mode(self):
+        fake = FakeRex()
+        code, text, _ = self.apply(fake, config="named")
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.prefs["Workspace.lightThemeID"], "merino-light")
+        self.assertEqual(fake.prefs["Workspace.darkThemeID"], "custom-2")
+        self.assertNotIn("FAILED", text)
+
+    def test_dark_theme_asked_for_light_mode_is_refused(self):
+        cfg = self.tmp / "cfg"
+        cfg.write_text("theme = light:Fixture Dark,dark:Fixture Dark 2\n")
+        themes = self.tmp / "themes"
+        themes.mkdir()
+        (themes / "Fixture Dark").write_text((THEMES / "Fixture Dark").read_text())
+        (themes / "Fixture Dark 2").write_text((THEMES / "Fixture Dark").read_text())
+        fake = FakeRex()
+        for p in (
+            mock.patch.object(migrate, "run", fake.run),
+            mock.patch.object(migrate, "read_rex_defaults", fake.read),
+            mock.patch.object(migrate.shutil, "which", return_value="/fake/rex"),
+            mock.patch.object(migrate.time, "sleep"),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+        code, text = self.main(str(cfg), "--themes-dir", str(themes), "--out", str(self.tmp / "out"), "--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("NOT DONE: 'Fixture Dark' is dark", text)
+        self.assertEqual(fake.prefs["Workspace.lightThemeID"], "merino-light")
+        # Importing Fixture Dark put it in Dark Mode; the plan wants Fixture Dark 2 there.
+        self.assertEqual(fake.themes[fake.prefs["Workspace.darkThemeID"]][0], "Fixture Dark 2")
+
+    def test_import_side_effect_is_undone_for_an_unplanned_slot(self):
+        cfg = self.tmp / "cfg"
+        cfg.write_text("theme = light:Fixture Dark\n")
+        fake = FakeRex()
+        for p in (
+            mock.patch.object(migrate, "run", fake.run),
+            mock.patch.object(migrate, "read_rex_defaults", fake.read),
+            mock.patch.object(migrate.shutil, "which", return_value="/fake/rex"),
+            mock.patch.object(migrate.time, "sleep"),
+        ):
+            p.start()
+            self.addCleanup(p.stop)
+        code, text = self.main(str(cfg), "--themes-dir", str(THEMES), "--out", str(self.tmp / "out"), "--apply")
+        self.assertEqual(code, 1)
+        self.assertEqual(fake.prefs["Workspace.darkThemeID"], "merino-dark")
+        self.assertEqual(fake.prefs["Workspace.lightThemeID"], "merino-light")
+
     def test_apply_does_not_import_twice(self):
-        fake = FakeRex(customs={"Fixture Light": "c-l", "Fixture Dark": "c-d"})
+        fake = FakeRex(customs={"Fixture Light": ("custom-l", "light"), "Fixture Dark": ("custom-d", "dark")})
         code, text, _ = self.apply(fake)
         self.assertEqual(code, 0, text)
         self.assertFalse(any("client.theme.import" in c for c in fake.calls))
         self.assertIn("already a custom theme", text)
+        self.assertEqual(fake.prefs["Workspace.darkThemeID"], "custom-d")
 
     def test_apply_without_remote_control_gives_manual_steps(self):
         fake = FakeRex(remote_control=False)
