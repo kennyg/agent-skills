@@ -1,0 +1,12 @@
+# Inline colors only, no theme.
+palette = 0=#1d1f21
+palette = 1=cc6666
+palette = 2=#b5bd68
+palette = 9=#f00
+palette = 300=#ffffff
+palette = 3=red
+background = #1d1f21
+foreground = #c5c8c6
+cursor-color = #aeafad
+selection-background = #373b41
+selection-foreground = #c5c8c6

@@ -1,0 +1,4 @@
+# Loaded after main, so its theme wins over the one in main.
+theme = Fixture Dark
+foreground = #abcdef
+config-file = main

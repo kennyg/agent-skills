@@ -1,0 +1,15 @@
+# Use zsh as the default shell
+shell-integration = "zsh"
+
+# Font setup for icons and readability
+font-family = "MesloLGS NF"
+
+# Best theme ever
+theme = "Catppuccin Macchiato"
+
+# For transparency
+background-opacity = 0.88
+
+# Cursor preferences
+cursor-style = "block"
+cursor-style-blink = true
