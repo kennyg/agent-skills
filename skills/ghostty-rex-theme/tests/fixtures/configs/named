@@ -1,0 +1,5 @@
+# A named theme, quoted, with settings this skill does not migrate.
+font-family = "MesloLGS NF"
+theme = "Fixture Dark"
+background-opacity = 0.88
+keybind = cmd+t=new_tab

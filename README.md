@@ -22,6 +22,7 @@ Skills are reusable extensions that give AI coding agents specialized capabiliti
 | [annotate](skills/annotate/) | Annotate git commits with structured context using gh-annotate |
 | [code-ingest](skills/code-ingest/) | Ingest a codegraph-indexed codebase into a repo-local code wiki |
 | [gherkin-step-scaffold](skills/gherkin-step-scaffold/) | Generate skeleton step definition files from Cucumber/Gherkin feature files |
+| [ghostty-rex-theme](skills/ghostty-rex-theme/) | Move a Ghostty theme selection to Rex, the Superlogical terminal |
 | [github-gist](skills/github-gist/) | Create GitHub gists quickly from files, code snippets, or text content |
 | [github-harden](skills/github-harden/) | Audit the security settings of public GitHub repos and apply a hardened baseline |
 | [going-ashore](skills/going-ashore/) | Runbook for standing up a first mate and its fleet on a remote host over SSH + herdr ("going ashore") |

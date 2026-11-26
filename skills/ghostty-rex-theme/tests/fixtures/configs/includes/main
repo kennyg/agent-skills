@@ -1,0 +1,5 @@
+font-family = Iosevka
+theme = Fixture Light
+config-file = colors
+config-file = ?optional-missing
+config-file = required-missing

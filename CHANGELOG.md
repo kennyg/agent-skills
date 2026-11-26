@@ -2,11 +2,12 @@
 
 ## v1.6.0 (Unreleased)
 
-Added a skill that audits the security settings of public GitHub repos and applies a hardened baseline.
+Added a skill that audits the security settings of public GitHub repos and applies a hardened baseline, and a skill that moves a Ghostty theme selection to Rex.
 
 ### New Skills
 
 - **github-harden** — Audit public GitHub repos against one security baseline, and apply it where a repo misses it. The baseline covers collaborators-only pull requests, approval for fork PR runs from all outside contributors, private vulnerability reporting, Dependabot alerts and security updates, a read-only `GITHUB_TOKEN`, the `Protect main` and `Protect release tags` rulesets, and secret scanning with push protection.
+- **ghostty-rex-theme** — Move a Ghostty theme selection to Rex, the Superlogical terminal. A `theme = light:A,dark:B` pair becomes the Rex Light Mode and Dark Mode themes.
 
 ### github-harden Details
 
@@ -16,6 +17,14 @@ Added a skill that audits the security settings of public GitHub repos and appli
 - **No duplicate rulesets** — A ruleset with the baseline name is updated in place. The update keeps its extra rules, ref patterns and bypass actors. A `POST` whose reply is lost is never sent again, because the first one can have created the ruleset.
 - **Report-only items** — The audit reports workflows without `actionlint` or `zizmor`, repos with no security policy, and outside PR authors. It never changes them.
 - **Parallel and rate-limit aware** — The script reads 6 repos at once by default. It waits on rate limits and retries reads and idempotent writes that get no response. It reads a 404 on a missing feature as `n/a`.
+
+### ghostty-rex-theme Details
+
+- **Dry run by default** — `migrate.py` prints the Ghostty config files, the theme it found, the resolved colors, the current Rex themes and what would change. It changes nothing.
+- **Ghostty semantics** — It reads Ghostty's usual config files or a given path, follows `config-file` includes, resolves theme names in the user's and Ghostty's bundled theme folders, and applies inline `palette` and color lines over the theme.
+- **Rex through its own actions** — `--apply` writes a Ghostty-format palette file, imports it with Rex.app's `client.theme.import` action and chooses it with `client.setting.themes.<light|dark>.palette`. It never writes Rex's private settings. It backs up the current choice and prints the undo commands. `--write` writes only the files, for Settings > Themes > Import Theme.
+- **Not migrated list** — Font, opacity, keybinds and every other setting are listed with their file and line, so they can be migrated later.
+- **Tested with Rex 0.1.0** — Rex is in beta, and its actions and storage can change.
 
 ---
 
